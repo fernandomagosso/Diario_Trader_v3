@@ -1,0 +1,5 @@
+{
+  "name": "Diario do trader v3",
+  "description": "Access Gemini models with the OpenAI SDK",
+  "requestFramePermissions": []
+}
