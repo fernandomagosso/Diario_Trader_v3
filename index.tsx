@@ -49,6 +49,7 @@ const debounce = <F extends (...args: any[]) => any>(func: F, waitFor: number) =
 
 // --- INITIALIZATION & CONFIG ---
 Chart.register(...registerables);
+// FIX: The API key must be obtained from `process.env.API_KEY`.
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 const appRoot = document.getElementById('app-root')!;
 let trades: Trade[] = [];

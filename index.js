@@ -60,6 +60,7 @@ const debounce = (func, waitFor) => {
 
 // --- INITIALIZATION & CONFIG ---
 Chart.register(...registerables);
+// FIX: The API key must be obtained from `process.env.API_KEY`.
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 const appRoot = document.getElementById('app-root');
 
@@ -183,6 +184,7 @@ const addTrade = (event) => {
     const exitPrice = parseFloat(formData.get('exit-price'));
     const { points, result } = calculateTradeMetrics(side, lots, entryPrice, exitPrice);
 
+    /** @type {Trade} */
     const newTrade = {
         id: Date.now(),
         asset: formData.get('asset'),
