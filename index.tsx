@@ -5,6 +5,9 @@
 import { GoogleGenAI } from "@google/genai";
 import { marked } from "marked";
 import { Chart, registerables } from "chart.js";
+import { jsPDF } from 'jspdf';
+import html2canvas from 'html2canvas';
+
 
 // --- TYPES AND INTERFACES ---
 interface Trade {
@@ -264,6 +267,42 @@ const exportToCSV = () => {
     document.body.removeChild(link);
 };
 
+const exportToPDF = async () => {
+    const dashboardCard = document.getElementById('performance-dashboard-card');
+    const exportButton = document.getElementById('export-pdf');
+    if (!dashboardCard || !exportButton) {
+        console.error('Dashboard card or export button not found');
+        return;
+    }
+
+    exportButton.textContent = 'Gerando PDF...';
+    exportButton.setAttribute('disabled', 'true');
+
+    try {
+        const canvas = await html2canvas(dashboardCard, {
+            scale: 2, // For better resolution
+            backgroundColor: getComputedStyle(document.documentElement).getPropertyValue('--surface-color').trim() || '#1e1e1e',
+            logging: false,
+            useCORS: true
+        });
+        const imgData = canvas.toDataURL('image/png');
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const imgProps = canvas;
+        const imgWidth = pdfWidth - 20; // 10mm margins
+        const imgHeight = (imgProps.height * imgWidth) / imgProps.width;
+
+        pdf.addImage(imgData, 'PNG', 10, 10, imgWidth, imgHeight);
+        pdf.save(`dashboard-performance_${new Date().toISOString().split('T')[0]}.pdf`);
+    } catch (error) {
+        console.error("Error generating PDF:", error);
+        alert('Falha ao gerar o PDF. Verifique o console para mais detalhes.');
+    } finally {
+        exportButton.textContent = 'Exportar PDF';
+        exportButton.removeAttribute('disabled');
+    }
+};
+
 const handleImport = (event: Event) => {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
@@ -381,7 +420,7 @@ function render() {
             </div>
         </div>
         <div class="right-panel">
-            <div class="card">
+            <div class="card" id="performance-dashboard-card">
                  <h2>Dashboard de Performance</h2>
                  ${renderDashboardStats(filteredTrades)}
                  <div class="charts">
@@ -397,6 +436,7 @@ function render() {
                     ${renderTradeHistory(filteredTrades)}
                 </div>
                 <div class="actions-footer">
+                    <button id="export-pdf" class="btn btn-secondary">Exportar PDF</button>
                     <button id="export-csv" class="btn btn-secondary">Exportar CSV</button>
                     <label for="import-csv-input" class="btn btn-secondary">Importar CSV</label>
                     <input type="file" id="import-csv-input" accept=".csv" style="display: none;">
@@ -680,6 +720,7 @@ const renderCharts = (data: Trade[]) => {
 const attachEventListeners = () => {
     document.getElementById('trade-form')?.addEventListener('submit', addTrade);
     document.getElementById('export-csv')?.addEventListener('click', exportToCSV);
+    document.getElementById('export-pdf')?.addEventListener('click', exportToPDF);
     document.getElementById('import-csv-input')?.addEventListener('change', handleImport);
     
     document.querySelectorAll('.filter-input').forEach(input => {
