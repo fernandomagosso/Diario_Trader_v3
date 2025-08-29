@@ -21,6 +21,7 @@ interface Trade {
     exitPrice: number;
     points: number;
     result: number;
+    notes?: string;
     region: string;
     structure: string;
     trigger: string;
@@ -112,15 +113,12 @@ const getAIInsight = async (trade: Trade) => {
         Análise de Trade Rápida:
         - Ativo: ${trade.asset}
         - Lado: ${trade.side}
-        - Lotes: ${trade.lots}
-        - Preço de Entrada: ${trade.entryPrice}
-        - Preço de Saída: ${trade.exitPrice}
         - Resultado: ${trade.result > 0 ? 'Gain' : 'Loss'} de R$ ${Math.abs(trade.result).toFixed(2)} (${trade.points} pontos)
         - Estratégia REG: Região (${trade.region}), Estrutura (${trade.structure}), Gatilho (${trade.trigger})
 
-        Com base nesses dados, forneça um insight para o trader. Seja amigável, direto e ajude-o a refletir sobre a operação.
-        Foque em um ponto positivo se foi gain, ou um ponto de atenção se foi loss.
-        A resposta deve ter no máximo 45 segundos de leitura. Use markdown para formatação.
+        Com base nesses dados, gere dois outputs separados por '---RESUMO---':
+        1.  **Insight Amigável:** Um insight para o trader. Seja amigável, direto e ajude-o a refletir. Foque em um ponto positivo se foi gain, ou um ponto de atenção se foi loss. Use markdown para formatação.
+        2.  **Resumo em Tópicos:** Um resumo conciso da análise em 2 ou 3 tópicos curtos (bullet points), ideal para anotações.
     `;
     
     try {
@@ -128,7 +126,22 @@ const getAIInsight = async (trade: Trade) => {
             model: 'gemini-2.5-flash',
             contents: prompt,
         });
-        insightContainer.innerHTML = await marked.parse(response.text);
+        
+        const responseText = response.text;
+        const parts = responseText.split('---RESUMO---');
+        const friendlyInsight = parts[0] || 'Não foi possível gerar o insight detalhado.';
+        const summaryNotes = parts[1] || '';
+
+        insightContainer.innerHTML = await marked.parse(friendlyInsight.trim());
+
+        if (summaryNotes) {
+            const tradeIndex = trades.findIndex(t => t.id === trade.id);
+            if (tradeIndex !== -1) {
+                trades[tradeIndex].notes = summaryNotes.trim();
+                saveState();
+            }
+        }
+
     } catch (error) {
         console.error("Error fetching AI insight:", error);
         insightContainer.innerHTML = 'Não foi possível obter o insight. Tente novamente mais tarde.';
@@ -165,6 +178,7 @@ const addTrade = (event: SubmitEvent) => {
         exitPrice,
         points,
         result,
+        notes: formData.get('notes') as string,
         region: formData.get('regions') as string,
         structure: formData.get('structures') as string,
         trigger: formData.get('triggers') as string,
@@ -210,6 +224,7 @@ const updateTrade = (event: SubmitEvent) => {
         exitPrice,
         points,
         result,
+        notes: formData.get('notes') as string,
         region: formData.get('regions') as string,
         structure: formData.get('structures') as string,
         trigger: formData.get('triggers') as string,
@@ -255,9 +270,30 @@ const closeEditModal = () => {
 
 const exportToCSV = () => {
     if (trades.length === 0) return;
-    const headers = Object.keys(trades[0]).join(',');
-    const rows = trades.map(trade => Object.values(trade).join(',')).join('\n');
-    const csvContent = `data:text/csv;charset=utf-8,${headers}\n${rows}`;
+
+    const headerConfig: { key: keyof Trade; label: string }[] = [
+        { key: 'id', label: 'id' },
+        { key: 'asset', label: 'asset' },
+        { key: 'tradeNumber', label: 'tradeNumber' },
+        { key: 'side', label: 'side' },
+        { key: 'date', label: 'date' },
+        { key: 'lots', label: 'Contratos/Quantidade' },
+        { key: 'entryPrice', label: 'entryPrice' },
+        { key: 'exitPrice', label: 'exitPrice' },
+        { key: 'points', label: 'Resultado Pontos' },
+        { key: 'result', label: 'Resultado Monetário/R$' },
+        { key: 'region', label: 'region' },
+        { key: 'structure', label: 'structure' },
+        { key: 'trigger', label: 'trigger' },
+    ];
+    
+    const headerRow = headerConfig.map(h => h.label).join(',');
+
+    const rows = trades.map(trade => {
+        return headerConfig.map(h => trade[h.key]).join(',');
+    }).join('\n');
+    
+    const csvContent = `data:text/csv;charset=utf-8,${headerRow}\n${rows}`;
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
@@ -267,41 +303,172 @@ const exportToCSV = () => {
     document.body.removeChild(link);
 };
 
+/**
+ * Renders text with support for **bold** markdown, handling word wrapping.
+ * @returns {number} The new Y coordinate after rendering the text.
+ */
+const addWrappedTextWithBold = (pdf: jsPDF, text: string, x: number, y: number, maxWidth: number, lineHeight: number): number => {
+    const parts = text.split(/(\*\*.*?\*\*)/g).filter(p => p.length > 0);
+    
+    let currentX = x;
+    const spaceWidth = pdf.getStringUnitWidth(' ') * pdf.getFontSize() / pdf.internal.scaleFactor;
+
+    for (const part of parts) {
+        const isBold = part.startsWith('**') && part.endsWith('**');
+        const content = isBold ? part.slice(2, -2) : part;
+        pdf.setFont('helvetica', isBold ? 'bold' : 'normal');
+
+        const words = content.split(/\s+/).filter(w => w.length > 0);
+
+        for (const word of words) {
+            const wordWidth = pdf.getStringUnitWidth(word) * pdf.getFontSize() / pdf.internal.scaleFactor;
+            
+            if (currentX + wordWidth > x + maxWidth) {
+                y += lineHeight;
+                currentX = x;
+            }
+
+            pdf.text(word, currentX, y);
+            currentX += wordWidth + spaceWidth;
+        }
+    }
+    return y;
+};
+
+
 const exportToPDF = async () => {
-    const dashboardCard = document.getElementById('performance-dashboard-card');
-    const exportButton = document.getElementById('export-pdf');
-    if (!dashboardCard || !exportButton) {
-        console.error('Dashboard card or export button not found');
+    if (trades.length === 0) {
+        alert("Não há operações para gerar um relatório.");
         return;
     }
 
-    exportButton.textContent = 'Gerando PDF...';
+    const exportButton = document.getElementById('export-pdf');
+    if (!exportButton) {
+        console.error('Export button not found');
+        return;
+    }
+
+    exportButton.textContent = 'Gerando Relatório IA...';
     exportButton.setAttribute('disabled', 'true');
 
     try {
-        const canvas = await html2canvas(dashboardCard, {
-            scale: 2, // For better resolution
-            backgroundColor: getComputedStyle(document.documentElement).getPropertyValue('--surface-color').trim() || '#1e1e1e',
-            logging: false,
-            useCORS: true
+        // --- 1. Capture Dashboard Image ---
+        const dashboardElement = document.getElementById('performance-dashboard-card');
+        if (!dashboardElement) {
+            throw new Error("Dashboard element not found for PDF export.");
+        }
+        const canvas = await html2canvas(dashboardElement, {
+            scale: 2, // Higher resolution for better PDF quality
+            backgroundColor: '#1e1e1e', // Match the card background color
+            useCORS: true,
         });
         const imgData = canvas.toDataURL('image/png');
-        const pdf = new jsPDF('p', 'mm', 'a4');
-        const pdfWidth = pdf.internal.pageSize.getWidth();
-        const imgProps = canvas;
-        const imgWidth = pdfWidth - 20; // 10mm margins
-        const imgHeight = (imgProps.height * imgWidth) / imgProps.width;
 
-        pdf.addImage(imgData, 'PNG', 10, 10, imgWidth, imgHeight);
-        pdf.save(`dashboard-performance_${new Date().toISOString().split('T')[0]}.pdf`);
+        // --- 2. Get AI Analysis ---
+        const tradesSummary = trades.map(t =>
+            `- Op #${t.tradeNumber}: ${t.asset}, ${t.side}, Resultado: R$ ${t.result.toFixed(2)}, Gatilho: ${t.trigger}`
+        ).join('\n');
+
+        const prompt = `
+            Você é um coach de traders profissional e amigável. Analise o seguinte histórico de operações de um trader e gere um relatório de performance detalhado.
+
+            Histórico de Operações:
+            ${tradesSummary}
+
+            Instruções para o relatório:
+            1. **Linguagem:** Use uma linguagem amigável, encorajadora e fácil de entender, como se estivesse conversando com o trader.
+            2. **Estrutura:** Organize o conteúdo em seções claras com títulos (usando markdown). Sugestões de seções:
+                - **Análise da Performance:** Um resumo dos resultados gerais (lucro/prejuízo, taxa de acerto), explicando o que os números significam.
+                - **Seus Pontos Fortes:** Identifique padrões positivos, como os gatilhos mais lucrativos ou ativos com maior sucesso. Elogie o que está funcionando.
+                - **Pontos de Melhoria:** Identifique com cuidado os padrões que estão causando perdas. Seja construtivo.
+                - **Análise por Gatilho:** Faça uma análise breve sobre a performance dos gatilhos utilizados.
+            3. **Resumo e Próximos Passos:** Termine com um resumo conciso e forneça 2 ou 3 pontos de ação claros e práticos para o trader focar.
+
+            O relatório deve ser completo, mas direto ao ponto. Use markdown para formatação (títulos com '##', listas com '-', negrito com '**').
+        `;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+        });
+        const reportText = response.text;
+
+        // --- 3. Assemble the PDF ---
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        const pageHeight = pdf.internal.pageSize.getHeight();
+        const pageWidth = pdf.internal.pageSize.getWidth();
+        const margin = 15;
+        let y = margin;
+
+        // Add the dashboard image first
+        const imgProps = pdf.getImageProperties(imgData);
+        const pdfWidth = pageWidth - margin * 2;
+        const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+        pdf.addImage(imgData, 'PNG', margin, y, pdfWidth, pdfHeight);
+        y += pdfHeight + 15; // Update y position to be below the image with padding
+
+        const checkPageEnd = (currentY: number) => {
+            if (currentY > pageHeight - margin) {
+                pdf.addPage();
+                return margin;
+            }
+            return currentY;
+        };
+
+        y = checkPageEnd(y); // Check if we need a new page for the text
+
+        pdf.line(margin, y - 8, pageWidth - margin, y - 8);
+        
+        const lines = reportText.split('\n');
+        const lineHeight = 5;
+        const maxWidth = pageWidth - margin * 2;
+
+        for (const line of lines) {
+            y = checkPageEnd(y);
+            // Clean emojis and trim whitespace
+            const processedLine = line.replace(/([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g, '').trim();
+
+            if (processedLine === '') {
+                y += lineHeight;
+                continue;
+            }
+
+            if (processedLine.startsWith('## ')) {
+                y += lineHeight * 1.5;
+                y = checkPageEnd(y);
+                pdf.setFontSize(14);
+                pdf.setFont('helvetica', 'bold');
+                const title = processedLine.substring(3).replace(/\*\*/g, '');
+                const splitTitle = pdf.splitTextToSize(title, maxWidth);
+                pdf.text(splitTitle, margin, y);
+                y += splitTitle.length * (lineHeight + 2);
+            } else if (processedLine.startsWith('- ')) {
+                pdf.setFontSize(11);
+                const bulletPoint = '• ';
+                const bulletWidth = pdf.getStringUnitWidth(bulletPoint) * pdf.getFontSize() / pdf.internal.scaleFactor;
+                pdf.text(bulletPoint, margin + 5, y);
+                
+                const itemText = processedLine.substring(2).trim();
+                y = addWrappedTextWithBold(pdf, itemText, margin + 5 + bulletWidth, y, maxWidth - 5 - bulletWidth, lineHeight);
+                y += lineHeight;
+            } else {
+                pdf.setFontSize(11);
+                y = addWrappedTextWithBold(pdf, processedLine, margin, y, maxWidth, lineHeight);
+                y += lineHeight;
+            }
+        }
+        
+        pdf.save(`relatorio-ia-trades_${new Date().toISOString().split('T')[0]}.pdf`);
+
     } catch (error) {
-        console.error("Error generating PDF:", error);
-        alert('Falha ao gerar o PDF. Verifique o console para mais detalhes.');
+        console.error("Error generating AI PDF report:", error);
+        alert('Falha ao gerar o relatório com IA. Verifique o console para mais detalhes.');
     } finally {
-        exportButton.textContent = 'Exportar PDF';
+        exportButton.textContent = 'Exportar Relatório IA';
         exportButton.removeAttribute('disabled');
     }
 };
+
 
 const handleImport = (event: Event) => {
     const input = event.target as HTMLInputElement;
@@ -318,8 +485,19 @@ const handleImport = (event: Event) => {
 
         try {
             const lines = text.trim().split(/\r?\n/);
-            const headers = lines.shift()?.split(',');
-            if (!headers || headers.length < 1) throw new Error("CSV inválido: Sem cabeçalhos.");
+            const headerLine = lines.shift();
+            if (!headerLine) throw new Error("CSV inválido: Sem cabeçalhos.");
+
+            const importHeaderMapping: { [key: string]: keyof Trade } = {
+                'Resultado Monetário/R$': 'result',
+                'Resultado Pontos': 'points',
+                'Contratos/Quantidade': 'lots'
+            };
+
+            const headers = headerLine.split(',').map(h => {
+                const trimmedHeader = h.trim();
+                return importHeaderMapping[trimmedHeader] || (trimmedHeader as keyof Trade);
+            });
 
             const importedTrades = lines.map((line, index) => {
                 const values = line.split(',');
@@ -329,7 +507,7 @@ const handleImport = (event: Event) => {
                 }
                 const tradeObject: { [key: string]: any } = {};
                 headers.forEach((header, i) => {
-                    tradeObject[header.trim()] = values[i].trim();
+                    tradeObject[header] = values[i].trim();
                 });
                 
                 return {
@@ -436,7 +614,7 @@ function render() {
                     ${renderTradeHistory(filteredTrades)}
                 </div>
                 <div class="actions-footer">
-                    <button id="export-pdf" class="btn btn-secondary">Exportar PDF</button>
+                    <button id="export-pdf" class="btn btn-secondary">Exportar Relatório IA</button>
                     <button id="export-csv" class="btn btn-secondary">Exportar CSV</button>
                     <label for="import-csv-input" class="btn btn-secondary">Importar CSV</label>
                     <input type="file" id="import-csv-input" accept=".csv" style="display: none;">
@@ -505,6 +683,10 @@ const renderFormFields = (tradeData: Partial<Trade>) => {
             <datalist id="triggers-list">
                 ${regOptions.triggers.map(o => `<option value="${o}">`).join('')}
             </datalist>
+        </div>
+        <div class="form-group">
+            <label for="notes">Notas Adicionais (IA)</label>
+            <textarea id="notes" name="notes" rows="4">${tradeData.notes || ''}</textarea>
         </div>
     `;
 };
@@ -618,6 +800,8 @@ const renderTradeHistory = (data: Trade[]) => {
     const emptyMessage = hasActiveFilters 
         ? 'Nenhuma operação encontrada para os filtros aplicados.' 
         : 'Nenhuma operação registrada.';
+        
+    const sortedData = [...data].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
     return `
         <table>
@@ -639,8 +823,8 @@ const renderTradeHistory = (data: Trade[]) => {
             </thead>
             <tbody>
                 ${
-                    data.length > 0
-                    ? data.map(trade => {
+                    sortedData.length > 0
+                    ? sortedData.map(trade => {
                         const { status, className } = getTradeStatus(trade);
                         const tradeIdentifier = `operação ${trade.tradeNumber} do ativo ${trade.asset}`;
                         return `

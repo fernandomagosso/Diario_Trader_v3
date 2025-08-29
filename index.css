@@ -85,6 +85,7 @@ main {
 .form-group input,
 .form-group select,
 .form-group datalist,
+.form-group textarea,
 .form-group button {
     width: 100%;
     padding: 0.75rem;
@@ -93,10 +94,16 @@ main {
     background-color: var(--bg-color);
     color: var(--text-color);
     font-size: 1rem;
+    font-family: inherit;
+}
+
+.form-group textarea {
+    resize: vertical;
 }
 
 .form-group input:focus,
-.form-group select:focus {
+.form-group select:focus,
+.form-group textarea:focus {
     outline: none;
     border-color: var(--primary-color);
     box-shadow: 0 0 0 2px rgba(0, 170, 255, 0.3);
