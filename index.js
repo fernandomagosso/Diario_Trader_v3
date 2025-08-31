@@ -156,6 +156,16 @@ const gisLoaded = () => {
             // Handle only interactive errors with user-facing messages
             if (wasInteractive) {
                 googleAuthState.isSignedIn = false;
+                // Check for specific OAuth configuration errors first.
+                const errorString = JSON.stringify(error);
+                if (errorString.includes('invalid_client') || errorString.includes('unauthorized_client')) {
+                    console.error('Fatal Google Auth Configuration Error:', error);
+                    googleAuthState.user = 'Erro de Configuração';
+                    render();
+                    alert(`Erro Crítico na Configuração da Integração: Cliente inválido. Verifique se o Client ID está correto e autorizado no Google Cloud Console.`);
+                    return; // Stop further processing.
+                }
+                // Handle other known interactive errors.
                 if (error.type === 'popup_failed_to_open') {
                     console.error('Authentication error: The browser blocked the popup.', error);
                     googleAuthState.user = 'Pop-up Bloqueado';
@@ -163,12 +173,13 @@ const gisLoaded = () => {
                     alert("A janela de login do Google foi bloqueada pelo seu navegador. Por favor, procure por um ícone de pop-up bloqueado na barra de endereço e permita pop-ups para este site.");
                 }
                 else if (error.type === 'popup_closed') {
-                    // This is a user action, not a critical error. Log for debugging but don't show a red error.
+                    // This is a user action, not a critical error.
                     console.log('Authentication flow was cancelled by the user.');
                     googleAuthState.user = 'Autorização Cancelada';
                     render();
                 }
                 else {
+                    // Catch-all for other unexpected errors.
                     console.error('Authentication error: An unexpected error occurred.', error);
                     googleAuthState.user = 'Erro de Autenticação';
                     render();
