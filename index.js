@@ -115,7 +115,7 @@ const loadState = () => {
     const savedSpreadsheetId = localStorage.getItem('spreadsheetId');
     if (savedTrades) trades = JSON.parse(savedTrades);
     if (savedRegOptions) regOptions = JSON.parse(savedRegOptions);
-    if (savedSpreadsheetId) spreadsheetId = savedSpreadsheetId;
+    spreadsheetId = savedSpreadsheetId || '1E8Is9CKoipS2sdw0o-WLtYecMXoRlZRIrM2aLI4VhAk';
 };
 
 // --- GOOGLE SHEETS INTEGRATION ---
@@ -137,7 +137,7 @@ const gisLoaded = () => {
         },
     });
     isGisReady = true;
-    if (isGapiReady) render();
+    render();
 };
 
 window.gapiLoaded = gapiLoaded;
@@ -148,7 +148,7 @@ const initializeGapiClient = async () => {
         discoveryDocs: ['https://sheets.googleapis.com/$discovery/rest?version=v4'],
     });
     isGapiReady = true;
-    if (isGisReady) render();
+    render();
 };
 
 const handleAuthClick = () => {
@@ -172,8 +172,8 @@ const handleSignoutClick = () => {
 };
 
 const syncToSheet = async () => {
-    if (!spreadsheetId) {
-        alert('Por favor, insira o ID da sua planilha do Google.');
+    if (!spreadsheetId || /\s/.test(spreadsheetId)) {
+        alert('Por favor, insira um ID da Planilha válido (não pode estar vazio ou conter espaços).');
         return;
     }
     if (trades.length === 0) {
@@ -1194,7 +1194,14 @@ const attachEventListeners = () => {
     document.getElementById('signout-sheets')?.addEventListener('click', handleSignoutClick);
     document.getElementById('sync-sheets')?.addEventListener('click', syncToSheet);
     document.getElementById('spreadsheet-id')?.addEventListener('change', (e) => {
-        spreadsheetId = e.target.value;
+        const input = e.target;
+        const value = input.value;
+        if (/\s/.test(value)) {
+            alert('O ID da Planilha não pode conter espaços. Por favor, insira um ID válido.');
+            input.value = spreadsheetId; // Revert to the last valid ID
+            return;
+        }
+        spreadsheetId = value;
         saveState();
     });
 };
