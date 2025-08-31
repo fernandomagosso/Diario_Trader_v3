@@ -11,6 +11,14 @@ import html2canvas from 'html2canvas';
 declare global {
     var gapi: any;
     var google: any;
+    // FIX: Replaced the redeclaration of 'process' to fix "Cannot redeclare block-scoped variable 'process'".
+    // This now correctly augments the existing NodeJS.ProcessEnv interface to add the API_KEY type,
+    // which is the standard way to handle environment variable typing in TypeScript.
+    namespace NodeJS {
+      interface ProcessEnv {
+        API_KEY: string;
+      }
+    }
 }
 
 
@@ -252,7 +260,7 @@ const updateRegOptionsIfNeeded = (tradeData: { region: string, structure: string
 
 const getAIInsight = async (trade: Trade) => {
     if (!ai) {
-        alert("Cliente de IA não inicializado. Verifique sua chave de API.");
+        alert("Cliente de IA não inicializado.");
         return;
     }
     const insightContainer = document.getElementById('ai-insight-content')!;
@@ -294,7 +302,7 @@ const getAIInsight = async (trade: Trade) => {
 
     } catch (error) {
         console.error("Error fetching AI insight:", error);
-        insightContainer.innerHTML = 'Não foi possível obter o insight. Sua chave de API pode ser inválida. Tente alterar a chave e recarregar a página.';
+        insightContainer.innerHTML = 'Não foi possível obter o insight. Verifique o console para mais detalhes.';
     } finally {
         insightContainer.parentElement!.classList.remove('loading');
     }
@@ -488,7 +496,7 @@ const addWrappedTextWithBold = (pdf: jsPDF, text: string, x: number, y: number, 
 
 const exportToPDF = async () => {
     if (!ai) {
-        alert("Cliente de IA não inicializado. Verifique sua chave de API.");
+        alert("Cliente de IA não inicializado.");
         return;
     }
     if (trades.length === 0) {
@@ -616,7 +624,7 @@ const exportToPDF = async () => {
 
     } catch (error) {
         console.error("Error generating AI PDF report:", error);
-        alert('Falha ao gerar o relatório com IA. Sua chave de API pode ser inválida. Verifique o console para mais detalhes.');
+        alert('Falha ao gerar o relatório com IA. Verifique o console para mais detalhes.');
     } finally {
         exportButton.textContent = 'Exportar Relatório IA';
         exportButton.removeAttribute('disabled');
@@ -769,7 +777,6 @@ function render() {
                     ${renderTradeHistory(filteredTrades)}
                 </div>
                 <div class="actions-footer">
-                    <button id="change-api-key" class="btn btn-secondary">Alterar Chave API</button>
                     <button id="export-pdf" class="btn btn-secondary">Exportar Relatório IA</button>
                     <button id="export-csv" class="btn btn-secondary">Exportar CSV</button>
                     <label for="import-csv-input" class="btn btn-secondary">Importar CSV</label>
@@ -1089,11 +1096,6 @@ const attachEventListeners = () => {
     document.getElementById('export-csv')?.addEventListener('click', exportToCSV);
     document.getElementById('export-pdf')?.addEventListener('click', exportToPDF);
     document.getElementById('import-csv-input')?.addEventListener('change', handleImport);
-    document.getElementById('change-api-key')?.addEventListener('click', () => {
-        sessionStorage.removeItem('gemini_api_key');
-        alert('Chave API removida. A página será recarregada para você inserir uma nova chave.');
-        location.reload();
-    });
     
     document.querySelectorAll('.filter-input').forEach(input => {
         input.addEventListener('input', updateFilters);
@@ -1147,34 +1149,14 @@ const attachEventListeners = () => {
 const initializeApp = () => {
     loadState();
     
-    let apiKey = sessionStorage.getItem('gemini_api_key');
-    if (!apiKey) {
-        apiKey = prompt("Por favor, insira sua Chave de API (API Key) do Google AI Studio:", "");
-        if (apiKey) {
-            sessionStorage.setItem('gemini_api_key', apiKey);
-        }
-    }
-
-    if (!apiKey) {
-        appRoot.innerHTML = `
-            <div class="card" style="margin: 2rem; text-align: center;">
-                <h2>Chave de API Necessária</h2>
-                <p>Uma Chave de API (API Key) do Google AI Studio é necessária para usar esta aplicação.</p>
-                <p>Por favor, atualize a página para inserir sua chave.</p>
-            </div>
-        `;
-        return;
-    }
-
     try {
-        ai = new GoogleGenAI({ apiKey });
+        ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         render(); // Initial render, Google API parts will be disabled until loaded
     } catch (error) {
          appRoot.innerHTML = `
             <div class="card" style="margin: 2rem; text-align: center;">
-                <h2>Falha na Inicialização</h2>
-                <p>Não foi possível inicializar o cliente de IA. Sua chave de API pode ser inválida.</p>
-                <p>Por favor, limpe o armazenamento da sessão e atualize a página para tentar novamente.</p>
+                <h2>Falha na Inicialização do AI</h2>
+                <p>Ocorreu um erro ao inicializar o cliente de IA. Verifique o console para detalhes.</p>
                 <pre style="text-align: left; background: #333; padding: 1rem; border-radius: 4px;">${(error as Error).message}</pre>
             </div>
         `;
