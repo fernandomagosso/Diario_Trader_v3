@@ -100,6 +100,7 @@ let isGisReady = false;
 let googleAuthState = { isSignedIn: false, user: '' };
 let spreadsheetId = '';
 let tokenClient;
+let isAuthorizingInteractively = false;
 
 
 // --- STATE MANAGEMENT & PERSISTENCE ---
@@ -128,15 +129,44 @@ const gisLoaded = () => {
         client_id: GOOGLE_CLIENT_ID,
         scope: GOOGLE_SCOPES,
         callback: (tokenResponse) => {
+            isAuthorizingInteractively = false; // Reset flag on any callback
             if (tokenResponse && tokenResponse.access_token) {
                 gapi.client.setToken(tokenResponse);
                 googleAuthState.isSignedIn = true;
                 googleAuthState.user = 'Conectado';
                 render();
             }
+            else {
+                console.error('Authentication failed: No access token in response.', tokenResponse);
+                if (isAuthorizingInteractively) {
+                    googleAuthState.isSignedIn = false;
+                    googleAuthState.user = 'Falha';
+                    render();
+                    alert('Falha na autenticação: Resposta inválida do Google.');
+                }
+            }
         },
+        error_callback: (error) => {
+            if (isAuthorizingInteractively) {
+                console.error('Authentication error:', error);
+                googleAuthState.isSignedIn = false;
+                googleAuthState.user = 'Erro de Autenticação';
+                render();
+                // Don't show an alert if the user just closed the popup.
+                if (error.type !== 'popup_closed') {
+                    alert(`Erro durante a autenticação: ${error.message || 'Verifique o console para mais detalhes.'}`);
+                }
+            }
+            else {
+                // Silent sign-in failed, which is expected for new users. Do nothing.
+                console.log("Silent auth failed, user can sign in manually.", error);
+            }
+            isAuthorizingInteractively = false; // Reset flag
+        }
     });
     isGisReady = true;
+    // Attempt a silent sign-in on page load to improve UX for returning users.
+    tokenClient.requestAccessToken({ prompt: 'none' });
     render();
 };
 
@@ -152,11 +182,9 @@ const initializeGapiClient = async () => {
 };
 
 const handleAuthClick = () => {
-    if (gapi.client.getToken() === null) {
-        tokenClient.requestAccessToken({ prompt: 'consent' });
-    } else {
-        tokenClient.requestAccessToken({ prompt: '' });
-    }
+    isAuthorizingInteractively = true;
+    // An empty prompt is usually best. 'consent' forces re-approval every time.
+    tokenClient.requestAccessToken({ prompt: '' });
 };
 
 const handleSignoutClick = () => {
@@ -176,62 +204,73 @@ const syncToSheet = async () => {
         alert('Por favor, insira um ID da Planilha válido (não pode estar vazio ou conter espaços).');
         return;
     }
-    if (trades.length === 0) {
-        alert('Não há operações para sincronizar.');
-        return;
-    }
-
     const syncButton = document.getElementById('sync-sheets');
     if (syncButton) {
         syncButton.textContent = 'Sincronizando...';
         syncButton.setAttribute('disabled', 'true');
     }
-
-    const headerRow = [
-        'ID', 'Ativo', '# Operação', 'Lado', 'Data', 'Lotes', 'Preço Entrada',
-        'Preço Saída', 'Pontos', 'Resultado R$', 'Região', 'Estrutura', 'Gatilho', 'Notas'
-    ];
-    const tradeRows = trades.map(t => [
-        t.id, t.asset, t.tradeNumber, t.side, t.date, t.lots, t.entryPrice,
-        t.exitPrice, t.points, t.result, t.region, t.structure, t.trigger, t.notes || ''
-    ]);
-    const values = [headerRow, ...tradeRows];
-    
+    const sheetName = 'Trades';
     try {
-        await gapi.client.sheets.spreadsheets.values.update({
-            spreadsheetId: spreadsheetId,
-            range: 'Trades!A1',
-            valueInputOption: 'USER_ENTERED',
-            resource: { values },
-        });
-        alert('Operações sincronizadas com sucesso!');
-    } catch (err) {
-        console.error('Erro na sincronização inicial:', err);
-        if (err.result?.error?.message?.includes('Unable to parse range')) {
-            console.log("Aba 'Trades' não encontrada. Tentando criar...");
-            try {
+        // Step 1: Ensure the sheet exists, create if not.
+        try {
+            const spreadsheet = await gapi.client.sheets.spreadsheets.get({
+                spreadsheetId: spreadsheetId,
+            });
+            const sheetExists = spreadsheet.result.sheets.some((s) => s.properties.title === sheetName);
+            if (!sheetExists) {
                 await gapi.client.sheets.spreadsheets.batchUpdate({
                     spreadsheetId: spreadsheetId,
-                    resource: { requests: [{ addSheet: { properties: { title: 'Trades' } } }] },
+                    resource: { requests: [{ addSheet: { properties: { title: sheetName } } }] },
                 });
-                await gapi.client.sheets.spreadsheets.values.update({
-                    spreadsheetId: spreadsheetId,
-                    range: 'Trades!A1',
-                    valueInputOption: 'USER_ENTERED',
-                    resource: { values },
-                });
-                alert('Aba "Trades" criada e operações sincronizadas com sucesso!');
-            } catch (createErr) {
-                 console.error('Erro ao criar ou sincronizar após criação da aba:', createErr);
-                 alert('Falha ao criar a aba "Trades". Por favor, crie-a manualmente na sua planilha e tente sincronizar novamente.');
             }
-        } else {
-            let errorMessage = 'Falha ao sincronizar. Verifique o console para mais detalhes.';
-            if (err.result?.error?.code === 404) errorMessage = 'Planilha não encontrada. Verifique o ID da planilha.';
-            else if (err.result?.error?.code === 403) errorMessage = 'Permissão negada. Certifique-se de que você tem permissão para editar esta planilha.';
-            alert(errorMessage);
         }
-    } finally {
+        catch (err) {
+            if (err.result?.error?.code === 404) {
+                throw new Error('Planilha não encontrada. Verifique o ID da planilha.');
+            }
+            throw err;
+        }
+        // Step 2: Clear the existing sheet data to ensure a clean slate.
+        await gapi.client.sheets.spreadsheets.values.clear({
+            spreadsheetId: spreadsheetId,
+            range: sheetName,
+        });
+        // If there are no trades, we're done after clearing.
+        if (trades.length === 0) {
+            alert('Sincronização concluída. Sua planilha agora está vazia para corresponder ao aplicativo.');
+            return;
+        }
+        // Step 3: Prepare all data (header + trades) for writing.
+        const headerRow = [
+            'ID', 'Ativo', '# Operação', 'Lado', 'Data', 'Lotes', 'Preço Entrada',
+            'Preço Saída', 'Pontos', 'Resultado R$', 'Região', 'Estrutura', 'Gatilho', 'Notas'
+        ];
+        const tradeRows = trades.map(t => [
+            t.id, t.asset, t.tradeNumber, t.side, t.date, t.lots, t.entryPrice,
+            t.exitPrice, t.points, t.result, t.region, t.structure, t.trigger, t.notes || ''
+        ]);
+        const valuesToWrite = [headerRow, ...tradeRows];
+        // Step 4: Write all data to the sheet.
+        await gapi.client.sheets.spreadsheets.values.update({
+            spreadsheetId: spreadsheetId,
+            range: `${sheetName}!A1`,
+            valueInputOption: 'USER_ENTERED',
+            resource: { values: valuesToWrite },
+        });
+        alert(`Sincronização concluída com sucesso! ${trades.length} operação(ões) espelhada(s) na planilha.`);
+    }
+    catch (err) {
+        console.error('Erro na sincronização:', err);
+        let errorMessage = 'Falha ao sincronizar. Verifique o console para mais detalhes.';
+        if (err.result?.error?.message) {
+            errorMessage = err.result.error.message;
+        }
+        else if (err.message) {
+            errorMessage = err.message;
+        }
+        alert(`Erro: ${errorMessage}`);
+    }
+    finally {
         if (syncButton) {
             syncButton.textContent = 'Sincronizar';
             if (googleAuthState.isSignedIn) {
