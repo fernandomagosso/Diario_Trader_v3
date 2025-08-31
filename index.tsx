@@ -72,7 +72,8 @@ const debounce = <F extends (...args: any[]) => any>(func: F, waitFor: number) =
 
 // --- INITIALIZATION & CONFIG ---
 Chart.register(...registerables);
-let ai: GoogleGenAI;
+let ai: GoogleGenAI | null = null;
+let aiInitializationError: Error | null = null;
 const appRoot = document.getElementById('app-root')!;
 let trades: Trade[] = [];
 let editingTrade: Trade | null = null;
@@ -783,6 +784,24 @@ const updateFilters = (event: Event) => {
 };
 
 // --- RENDERING ---
+const renderAIInsightCard = () => {
+    let content = 'Registre uma operação para receber uma análise.';
+    if (!ai) {
+        content = `
+            <p style="color: var(--loss-color); margin-bottom: 0.5rem;"><strong>Falha na inicialização da IA.</strong></p>
+            <p style="font-size: 0.9rem; color: var(--text-secondary-color);">As funcionalidades de IA estão desativadas. Causa provável: A chave da API não está configurada corretamente no ambiente.</p>
+        `;
+    }
+
+    return `
+        <div class="card ai-insight" aria-live="polite">
+            <h3>💡 Insight da IA</h3>
+            <div id="ai-insight-content">${content}</div>
+        </div>
+    `;
+};
+
+
 // FIX: Converted 'render' from a const arrow function to a standard function declaration.
 // This hoists the function, making it available for the 'debouncedRender' constant initialization
 // and fixing the "used before declaration" error.
@@ -800,10 +819,7 @@ function render() {
                 </form>
             </div>
              ${renderGoogleSheetsCard()}
-             <div class="card ai-insight" aria-live="polite">
-                <h3>💡 Insight da IA</h3>
-                <div id="ai-insight-content">Registre uma operação para receber uma análise.</div>
-            </div>
+             ${renderAIInsightCard()}
         </div>
         <div class="right-panel">
             <div class="card" id="performance-dashboard-card">
@@ -822,7 +838,7 @@ function render() {
                     ${renderTradeHistory(filteredTrades)}
                 </div>
                 <div class="actions-footer">
-                    <button id="export-pdf" class="btn btn-secondary">Exportar Relatório IA</button>
+                    <button id="export-pdf" class="btn btn-secondary" ${!ai ? 'disabled title="Funcionalidade de IA desativada. Verifique a configuração da API."' : ''}>Exportar Relatório IA</button>
                     <button id="export-csv" class="btn btn-secondary">Exportar CSV</button>
                     <label for="import-csv-input" class="btn btn-secondary">Importar CSV</label>
                     <input type="file" id="import-csv-input" accept=".csv" style="display: none;">
@@ -1203,16 +1219,12 @@ const initializeApp = () => {
     
     try {
         ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-        render(); // Initial render, Google API parts will be disabled until loaded
     } catch (error) {
-         appRoot.innerHTML = `
-            <div class="card" style="margin: 2rem; text-align: center;">
-                <h2>Falha na Inicialização do AI</h2>
-                <p>Ocorreu um erro ao inicializar o cliente de IA. Verifique o console para detalhes.</p>
-                <pre style="text-align: left; background: #333; padding: 1rem; border-radius: 4px;">${(error as Error).message}</pre>
-            </div>
-        `;
+        aiInitializationError = error as Error;
+        console.error("AI Initialization Failed:", aiInitializationError);
     }
+
+    render();
 };
 
 initializeApp();
