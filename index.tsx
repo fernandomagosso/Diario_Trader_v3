@@ -8,6 +8,11 @@ import { Chart, registerables } from "chart.js";
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 
+declare global {
+    var gapi: any;
+    var google: any;
+}
+
 
 // --- TYPES AND INTERFACES ---
 interface Trade {
@@ -40,6 +45,12 @@ interface Filters {
     result: 'Todos' | 'Gain' | 'Loss';
 }
 
+interface GoogleAuthState {
+    isSignedIn: boolean;
+    user: string;
+}
+
+
 // --- UTILITIES ---
 const debounce = <F extends (...args: any[]) => any>(func: F, waitFor: number) => {
     let timeout: ReturnType<typeof setTimeout> | null = null;
@@ -67,17 +78,153 @@ let regOptions: RegOptions = {
 let charts: { [key: string]: Chart } = {};
 const debouncedRender = debounce(render, 300);
 
+// Google Sheets Config
+const GOOGLE_CLIENT_ID = '312225788265-5akif4pd2ebspjuui79m6qe1807an145.apps.googleusercontent.com';
+const GOOGLE_SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
+let isGapiReady = false;
+let isGisReady = false;
+let googleAuthState: GoogleAuthState = { isSignedIn: false, user: '' };
+let spreadsheetId = '';
+let tokenClient: any;
+
+
 // --- STATE MANAGEMENT & PERSISTENCE ---
 const saveState = () => {
     localStorage.setItem('trades', JSON.stringify(trades));
     localStorage.setItem('regOptions', JSON.stringify(regOptions));
+    localStorage.setItem('spreadsheetId', spreadsheetId);
 };
 
 const loadState = () => {
     const savedTrades = localStorage.getItem('trades');
     const savedRegOptions = localStorage.getItem('regOptions');
+    const savedSpreadsheetId = localStorage.getItem('spreadsheetId');
     if (savedTrades) trades = JSON.parse(savedTrades);
     if (savedRegOptions) regOptions = JSON.parse(savedRegOptions);
+    if (savedSpreadsheetId) spreadsheetId = savedSpreadsheetId;
+};
+
+// --- GOOGLE SHEETS INTEGRATION ---
+const gapiLoaded = () => {
+    gapi.load('client', initializeGapiClient);
+};
+
+const gisLoaded = () => {
+    tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_CLIENT_ID,
+        scope: GOOGLE_SCOPES,
+        callback: (tokenResponse: any) => {
+            if (tokenResponse && tokenResponse.access_token) {
+                gapi.client.setToken(tokenResponse);
+                googleAuthState.isSignedIn = true;
+                googleAuthState.user = 'Conectado';
+                render();
+            }
+        },
+    });
+    isGisReady = true;
+    if (isGapiReady) render();
+};
+
+(window as any).gapiLoaded = gapiLoaded;
+(window as any).gisLoaded = gisLoaded;
+
+const initializeGapiClient = async () => {
+    await gapi.client.init({
+        discoveryDocs: ['https://sheets.googleapis.com/$discovery/rest?version=v4'],
+    });
+    isGapiReady = true;
+    if (isGisReady) render();
+};
+
+const handleAuthClick = () => {
+    if (gapi.client.getToken() === null) {
+        tokenClient.requestAccessToken({ prompt: 'consent' });
+    } else {
+        tokenClient.requestAccessToken({ prompt: '' });
+    }
+};
+
+const handleSignoutClick = () => {
+    const token = gapi.client.getToken();
+    if (token !== null) {
+        google.accounts.oauth2.revoke(token.access_token, () => {
+            gapi.client.setToken('');
+            googleAuthState.isSignedIn = false;
+            googleAuthState.user = '';
+            render();
+        });
+    }
+};
+
+const syncToSheet = async () => {
+    if (!spreadsheetId) {
+        alert('Por favor, insira o ID da sua planilha do Google.');
+        return;
+    }
+    if (trades.length === 0) {
+        alert('Não há operações para sincronizar.');
+        return;
+    }
+
+    const syncButton = document.getElementById('sync-sheets');
+    if (syncButton) {
+        syncButton.textContent = 'Sincronizando...';
+        syncButton.setAttribute('disabled', 'true');
+    }
+
+    const headerRow = [
+        'ID', 'Ativo', '# Operação', 'Lado', 'Data', 'Lotes', 'Preço Entrada',
+        'Preço Saída', 'Pontos', 'Resultado R$', 'Região', 'Estrutura', 'Gatilho', 'Notas'
+    ];
+    const tradeRows = trades.map(t => [
+        t.id, t.asset, t.tradeNumber, t.side, t.date, t.lots, t.entryPrice,
+        t.exitPrice, t.points, t.result, t.region, t.structure, t.trigger, t.notes || ''
+    ]);
+    const values = [headerRow, ...tradeRows];
+    
+    try {
+        await gapi.client.sheets.spreadsheets.values.update({
+            spreadsheetId: spreadsheetId,
+            range: 'Trades!A1',
+            valueInputOption: 'USER_ENTERED',
+            resource: { values },
+        });
+        alert('Operações sincronizadas com sucesso!');
+    } catch (err: any) {
+        console.error('Erro na sincronização inicial:', err);
+        if (err.result?.error?.message?.includes('Unable to parse range')) {
+            console.log("Aba 'Trades' não encontrada. Tentando criar...");
+            try {
+                await gapi.client.sheets.spreadsheets.batchUpdate({
+                    spreadsheetId: spreadsheetId,
+                    resource: { requests: [{ addSheet: { properties: { title: 'Trades' } } }] },
+                });
+                await gapi.client.sheets.spreadsheets.values.update({
+                    spreadsheetId: spreadsheetId,
+                    range: 'Trades!A1',
+                    valueInputOption: 'USER_ENTERED',
+                    resource: { values },
+                });
+                alert('Aba "Trades" criada e operações sincronizadas com sucesso!');
+            } catch (createErr) {
+                 console.error('Erro ao criar ou sincronizar após criação da aba:', createErr);
+                 alert('Falha ao criar a aba "Trades". Por favor, crie-a manualmente na sua planilha e tente sincronizar novamente.');
+            }
+        } else {
+            let errorMessage = 'Falha ao sincronizar. Verifique o console para mais detalhes.';
+            if (err.result?.error?.code === 404) errorMessage = 'Planilha não encontrada. Verifique o ID da planilha.';
+            else if (err.result?.error?.code === 403) errorMessage = 'Permissão negada. Certifique-se de que você tem permissão para editar esta planilha.';
+            alert(errorMessage);
+        }
+    } finally {
+        if (syncButton) {
+            syncButton.textContent = 'Sincronizar';
+            if (googleAuthState.isSignedIn) {
+                syncButton.removeAttribute('disabled');
+            }
+        }
+    }
 };
 
 // --- CORE LOGIC ---
@@ -599,6 +746,7 @@ function render() {
                     <button type="submit" class="btn btn-primary">Adicionar Operação</button>
                 </form>
             </div>
+             ${renderGoogleSheetsCard()}
              <div class="card ai-insight" aria-live="polite">
                 <h3>💡 Insight da IA</h3>
                 <div id="ai-insight-content">Registre uma operação para receber uma análise.</div>
@@ -637,6 +785,33 @@ function render() {
     renderCharts(filteredTrades);
     attachEventListeners();
 }
+
+const renderGoogleSheetsCard = () => {
+    const isConnected = googleAuthState.isSignedIn;
+    const disabled = !isGapiReady || !isGisReady;
+
+    return `
+    <div class="card google-sheets-card">
+        <h2>🔗 Integração Google Sheets</h2>
+        <div class="status ${isConnected ? 'connected' : 'disconnected'}">
+            ${isConnected ? `Status: ${googleAuthState.user}` : 'Status: Desconectado'}
+        </div>
+        <div class="form-group">
+            <label for="spreadsheet-id">ID da Planilha</label>
+            <input type="text" id="spreadsheet-id" name="spreadsheet-id" placeholder="Cole o ID da sua planilha aqui" value="${spreadsheetId}">
+        </div>
+        <div class="actions">
+            ${!isConnected
+                ? `<button id="auth-sheets" class="btn btn-primary" ${disabled ? 'disabled' : ''}>Autorizar Google</button>`
+                : `<button id="signout-sheets" class="btn btn-secondary">Desconectar</button>`
+            }
+            <button id="sync-sheets" class="btn btn-primary" ${!isConnected || disabled ? 'disabled' : ''}>Sincronizar</button>
+        </div>
+        ${disabled ? '<p style="font-size: 0.8rem; text-align: center; margin-top: 1rem;">Inicializando serviços do Google...</p>' : ''}
+    </div>
+    `;
+};
+
 
 const renderFormFields = (tradeData: Partial<Trade>) => {
     return `
@@ -957,10 +1132,21 @@ const attachEventListeners = () => {
         document.querySelector('.btn-confirm-delete')?.addEventListener('click', confirmDelete);
         document.querySelector('.btn-cancel-delete')?.addEventListener('click', closeDeleteModal);
     }
+
+    // Google Sheets listeners
+    document.getElementById('auth-sheets')?.addEventListener('click', handleAuthClick);
+    document.getElementById('signout-sheets')?.addEventListener('click', handleSignoutClick);
+    document.getElementById('sync-sheets')?.addEventListener('click', syncToSheet);
+    document.getElementById('spreadsheet-id')?.addEventListener('change', (e) => {
+        spreadsheetId = (e.target as HTMLInputElement).value;
+        saveState();
+    });
 };
 
 // --- APP START ---
-const initializeApp = async () => {
+const initializeApp = () => {
+    loadState();
+    
     let apiKey = sessionStorage.getItem('gemini_api_key');
     if (!apiKey) {
         apiKey = prompt("Por favor, insira sua Chave de API (API Key) do Google AI Studio:", "");
@@ -982,8 +1168,7 @@ const initializeApp = async () => {
 
     try {
         ai = new GoogleGenAI({ apiKey });
-        loadState();
-        render();
+        render(); // Initial render, Google API parts will be disabled until loaded
     } catch (error) {
          appRoot.innerHTML = `
             <div class="card" style="margin: 2rem; text-align: center;">
