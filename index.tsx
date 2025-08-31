@@ -124,6 +124,7 @@ const gisLoaded = () => {
         client_id: GOOGLE_CLIENT_ID,
         scope: GOOGLE_SCOPES,
         callback: (tokenResponse: any) => {
+            const wasInteractive = isAuthorizingInteractively;
             isAuthorizingInteractively = false; // Reset flag on any callback
             if (tokenResponse && tokenResponse.access_token) {
                 gapi.client.setToken(tokenResponse);
@@ -132,7 +133,7 @@ const gisLoaded = () => {
                 render();
             } else {
                 console.error('Authentication failed: No access token in response.', tokenResponse);
-                if (isAuthorizingInteractively) {
+                if (wasInteractive) {
                      googleAuthState.isSignedIn = false;
                      googleAuthState.user = 'Falha';
                      render();
@@ -140,21 +141,34 @@ const gisLoaded = () => {
                 }
             }
         },
-        error_callback: (error: { message?: string, type?: string }) => {
-            if (isAuthorizingInteractively) {
-                console.error('Authentication error:', error);
+        error_callback: (error: { type: string; [key: string]: any }) => {
+            const wasInteractive = isAuthorizingInteractively;
+            isAuthorizingInteractively = false; // Reset flag for next attempt
+
+            // Handle only interactive errors with user-facing messages
+            if (wasInteractive) {
                 googleAuthState.isSignedIn = false;
-                googleAuthState.user = 'Erro de Autenticação';
-                render();
-                // Don't show an alert if the user just closed the popup.
-                if (error.type !== 'popup_closed') {
-                    alert(`Erro durante a autenticação: ${error.message || 'Verifique o console para mais detalhes.'}`);
+
+                if (error.type === 'popup_failed_to_open') {
+                    console.error('Authentication error: The browser blocked the popup.', error);
+                    googleAuthState.user = 'Pop-up Bloqueado';
+                    render();
+                    alert("A janela de login do Google foi bloqueada pelo seu navegador. Por favor, procure por um ícone de pop-up bloqueado na barra de endereço e permita pop-ups para este site.");
+                } else if (error.type === 'popup_closed') {
+                    // This is a user action, not a critical error. Log for debugging but don't show a red error.
+                    console.log('Authentication flow was cancelled by the user.');
+                    googleAuthState.user = 'Autorização Cancelada';
+                    render();
+                } else {
+                    console.error('Authentication error: An unexpected error occurred.', error);
+                    googleAuthState.user = 'Erro de Autenticação';
+                    render();
+                    alert(`Ocorreu um erro inesperado durante a autenticação: ${error.message || 'Verifique o console.'}`);
                 }
             } else {
-                // Silent sign-in failed, which is expected for new users. Do nothing.
-                console.log("Silent auth failed, user can sign in manually.", error);
+                // Silent auth failed, this is normal for new users, no need to do anything.
+                console.log("Silent auth failed, which is expected for users needing to grant consent.", error);
             }
-            isAuthorizingInteractively = false; // Reset flag
         }
     });
     isGisReady = true;
@@ -164,9 +178,6 @@ const gisLoaded = () => {
 
     render();
 };
-
-(window as any).gapiLoaded = gapiLoaded;
-(window as any).gisLoaded = gisLoaded;
 
 const initializeGapiClient = async () => {
     await gapi.client.init({
@@ -1213,9 +1224,26 @@ const attachEventListeners = () => {
     });
 };
 
+const loadGoogleApiScripts = () => {
+    const gisScript = document.createElement('script');
+    gisScript.src = 'https://accounts.google.com/gsi/client';
+    gisScript.async = true;
+    gisScript.defer = true;
+    gisScript.onload = gisLoaded;
+    document.head.appendChild(gisScript);
+
+    const gapiScript = document.createElement('script');
+    gapiScript.src = 'https://apis.google.com/js/api.js';
+    gapiScript.async = true;
+    gapiScript.defer = true;
+    gapiScript.onload = gapiLoaded;
+    document.head.appendChild(gapiScript);
+};
+
 // --- APP START ---
 const initializeApp = () => {
     loadState();
+    loadGoogleApiScripts();
     
     try {
         ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
