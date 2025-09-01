@@ -290,7 +290,6 @@ const fetchRegOptionsFromSheet = async () => {
 
         if (updated) {
             saveState();
-            render();
             syncRegOptionsToSheet({ silent: true });
         }
 
