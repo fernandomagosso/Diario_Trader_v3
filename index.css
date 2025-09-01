@@ -96,7 +96,7 @@ main {
 
 .form-label-group {
     display: flex;
-    justify-content: flex-start;
+    justify-content: space-between;
     align-items: center;
     gap: 0.5rem;
     margin-bottom: 0.5rem;
@@ -381,6 +381,23 @@ form .btn {
     transform: scale(1.1);
 }
 
+.btn-manage-options {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 0.8rem;
+    color: var(--text-secondary-color);
+    font-weight: 500;
+    padding: 0;
+    text-decoration: none;
+    transition: color 0.2s ease;
+}
+
+.btn-manage-options:hover {
+    color: var(--primary-color);
+    text-decoration: underline;
+}
+
 .btn-delete-option:hover {
     color: var(--loss-color);
 }
@@ -563,6 +580,7 @@ form .btn {
 .add-option-form {
     display: flex;
     gap: 0.5rem;
+    align-items: center;
 }
 
 .add-option-form input {
@@ -571,4 +589,13 @@ form .btn {
 
 .add-option-form button {
     flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    font-size: 2rem;
+    font-weight: 400;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }

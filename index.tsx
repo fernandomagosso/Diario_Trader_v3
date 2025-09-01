@@ -1334,7 +1334,7 @@ const renderFormFields = (tradeData: Partial<Trade>) => {
         <div class="form-group">
             <div class="form-label-group">
                 <label for="regions">Região</label>
-                <button type="button" class="btn-icon btn-manage-options" data-option-type="regions" title="Gerenciar Regiões" aria-label="Gerenciar Regiões">⚙️</button>
+                <button type="button" class="btn-manage-options" data-option-type="regions" aria-label="Gerenciar Regiões">Gerenciar</button>
             </div>
             <input list="regions-list" id="regions" name="regions" required value="${tradeData.region || ''}">
             <datalist id="regions-list">
@@ -1345,7 +1345,7 @@ const renderFormFields = (tradeData: Partial<Trade>) => {
         <div class="form-group">
             <div class="form-label-group">
                 <label for="structures">Estrutura</label>
-                <button type="button" class="btn-icon btn-manage-options" data-option-type="structures" title="Gerenciar Estruturas" aria-label="Gerenciar Estruturas">⚙️</button>
+                <button type="button" class="btn-manage-options" data-option-type="structures" aria-label="Gerenciar Estruturas">Gerenciar</button>
             </div>
             <input list="structures-list" id="structures" name="structures" required value="${tradeData.structure || ''}">
             <datalist id="structures-list">
@@ -1356,7 +1356,7 @@ const renderFormFields = (tradeData: Partial<Trade>) => {
         <div class="form-group">
             <div class="form-label-group">
                 <label for="triggers">Gatilho</label>
-                <button type="button" class="btn-icon btn-manage-options" data-option-type="triggers" title="Gerenciar Gatilhos" aria-label="Gerenciar Gatilhos">⚙️</button>
+                <button type="button" class="btn-manage-options" data-option-type="triggers" aria-label="Gerenciar Gatilhos">Gerenciar</button>
             </div>
             <input list="triggers-list" id="triggers" name="triggers" required value="${tradeData.trigger || ''}">
             <datalist id="triggers-list">
@@ -1432,7 +1432,7 @@ const renderManageOptionsModal = () => {
                     <form id="add-option-form" class="add-option-form">
                          <label for="new-option-input" class="sr-only">Nova opção</label>
                          <input type="text" id="new-option-input" name="new-option-input" placeholder="Adicionar nova ${title.slice(0, -1).toLowerCase()}" required>
-                         <button type="submit" class="btn btn-primary">Adicionar</button>
+                         <button type="submit" class="btn btn-primary" aria-label="Adicionar" title="Adicionar">+</button>
                     </form>
                 </div>
             </div>
