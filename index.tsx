@@ -211,10 +211,6 @@ const gisLoaded = () => {
         }
     });
     isGisReady = true;
-
-    // Attempt a silent sign-in on page load to improve UX for returning users.
-    tokenClient.requestAccessToken({ prompt: 'none' });
-
     render();
 };
 
@@ -250,7 +246,7 @@ const syncToSheet = async (options: { silent?: boolean } = {}) => {
         return;
     }
 
-    const syncButton = !options.silent ? document.getElementById('sync-sheets') : null;
+    const syncButton = document.getElementById('sync-sheets');
     if (syncButton) {
         syncButton.textContent = 'Sincronizando...';
         syncButton.setAttribute('disabled', 'true');
@@ -1086,7 +1082,6 @@ function render() {
                     <button type="submit" class="btn btn-primary">Adicionar Operação</button>
                 </form>
             </div>
-             ${renderGoogleSheetsCard()}
              ${renderAIInsightCard()}
         </div>
         <div class="right-panel">
@@ -1118,34 +1113,34 @@ function render() {
             ${renderDeleteModal()}
         </div>
     `;
+    renderGoogleAuthHeader();
     renderCharts(filteredTrades);
     attachEventListeners();
 }
 
-const renderGoogleSheetsCard = () => {
+const renderGoogleAuthHeader = () => {
+    const container = document.getElementById('google-auth-container');
+    if (!container) return;
+
     const isConnected = googleAuthState.isSignedIn;
     const disabled = !isGapiReady || !isGisReady;
+    let content = '';
 
-    return `
-    <div class="card google-sheets-card">
-        <h2>🔗 Integração Google Sheets</h2>
-        <div class="status ${isConnected ? 'connected' : 'disconnected'}">
-            ${isConnected ? `Status: ${googleAuthState.user}` : 'Status: Desconectado'}
-        </div>
-        <div class="spreadsheet-info">
-            <p>Planilha de destino:</p>
-            <a href="https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit" target="_blank" rel="noopener noreferrer">Acessar Planilha</a>
-        </div>
-        <div class="actions">
-            ${!isConnected
-                ? `<button id="auth-sheets" class="btn btn-primary" ${disabled ? 'disabled' : ''}>Autorizar Google</button>`
-                : `<button id="signout-sheets" class="btn btn-secondary">Desconectar</button>`
-            }
-            <button id="sync-sheets" class="btn btn-primary" ${!isConnected || disabled ? 'disabled' : ''}>Sincronizar</button>
-        </div>
-        ${disabled ? '<p style="font-size: 0.8rem; text-align: center; margin-top: 1rem;">Inicializando serviços do Google...</p>' : ''}
-    </div>
-    `;
+    if (disabled) {
+        content = `<p class="status-text">Inicializando...</p>`;
+    } else if (isConnected) {
+        content = `
+            <span class="status-text" title="Conectado ao Google Sheets">${googleAuthState.user}</span>
+            <button id="sync-sheets" class="btn btn-primary" title="Sincronizar com Google Sheets">Sincronizar</button>
+            <button id="signout-sheets" class="btn btn-secondary" title="Desconectar do Google">Desconectar</button>
+        `;
+    } else {
+        content = `
+            <a href="https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit" target="_blank" rel="noopener noreferrer" class="status-text" style="text-decoration: none; color: var(--text-secondary-color);" title="Ver planilha de destino">Ver Planilha</a>
+            <button id="auth-sheets" class="btn btn-secondary" title="Conectar com Google Sheets para sincronizar">Conectar ao Google</button>
+        `;
+    }
+    container.innerHTML = content;
 };
 
 
