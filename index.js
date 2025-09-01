@@ -68,6 +68,41 @@ const debounce = (func, waitFor) => {
     };
 };
 
+/**
+ * Parses a string number from various locales into a float.
+ * @param {string | null} value The string to parse.
+ * @returns {number}
+ */
+const parseLocaleNumber = (value) => {
+    if (typeof value !== 'string' || !value) {
+        return NaN;
+    }
+    const sanitized = value.trim();
+    const hasComma = sanitized.includes(',');
+    const hasDot = sanitized.includes('.');
+
+    // If both are present, we need to decide which is the decimal separator.
+    if (hasComma && hasDot) {
+        // If comma is last, assume pt-BR format (e.g., '1.234,56')
+        if (sanitized.lastIndexOf(',') > sanitized.lastIndexOf('.')) {
+            return parseFloat(sanitized.replace(/\./g, '').replace(',', '.'));
+        }
+        // If dot is last, assume en-US format (e.g., '1,234.56')
+        else {
+            return parseFloat(sanitized.replace(/,/g, ''));
+        }
+    }
+
+    // If only comma is present, it must be the decimal separator
+    if (hasComma) {
+        return parseFloat(sanitized.replace(',', '.'));
+    }
+
+    // If only dot is present, or none, parseFloat can handle it directly.
+    return parseFloat(sanitized);
+};
+
+
 // --- INITIALIZATION & CONFIG ---
 Chart.register(...registerables);
 /** @type {GoogleGenAI | null} */
@@ -101,7 +136,7 @@ let isGapiReady = false;
 let isGisReady = false;
 /** @type {GoogleAuthState} */
 let googleAuthState = { isSignedIn: false, user: '' };
-let spreadsheetId = '';
+const spreadsheetId = '1E8Is9CKoipS2sdw0o-WLtYecMXoRlZRIrM2aLI4VhAk';
 let tokenClient;
 let isAuthorizingInteractively = false;
 
@@ -110,16 +145,13 @@ let isAuthorizingInteractively = false;
 const saveState = () => {
     localStorage.setItem('trades', JSON.stringify(trades));
     localStorage.setItem('regOptions', JSON.stringify(regOptions));
-    localStorage.setItem('spreadsheetId', spreadsheetId);
 };
 
 const loadState = () => {
     const savedTrades = localStorage.getItem('trades');
     const savedRegOptions = localStorage.getItem('regOptions');
-    const savedSpreadsheetId = localStorage.getItem('spreadsheetId');
     if (savedTrades) trades = JSON.parse(savedTrades);
     if (savedRegOptions) regOptions = JSON.parse(savedRegOptions);
-    spreadsheetId = savedSpreadsheetId || '1E8Is9CKoipS2sdw0o-WLtYecMXoRlZRIrM2aLI4VhAk';
 };
 
 // --- GOOGLE SHEETS INTEGRATION ---
@@ -224,16 +256,20 @@ const handleSignoutClick = () => {
     }
 };
 
-const syncToSheet = async () => {
+const syncToSheet = async (options = {}) => {
     if (!spreadsheetId || /\s/.test(spreadsheetId)) {
-        alert('Por favor, insira um ID da Planilha válido (não pode estar vazio ou conter espaços).');
+        if (!options.silent) {
+            alert('Por favor, insira um ID da Planilha válido (não pode estar vazio ou conter espaços).');
+        }
         return;
     }
-    const syncButton = document.getElementById('sync-sheets');
+
+    const syncButton = !options.silent ? document.getElementById('sync-sheets') : null;
     if (syncButton) {
         syncButton.textContent = 'Sincronizando...';
         syncButton.setAttribute('disabled', 'true');
     }
+
     const sheetName = 'Trades';
     try {
         // Step 1: Ensure the sheet exists, create if not.
@@ -262,7 +298,9 @@ const syncToSheet = async () => {
         });
         // If there are no trades, we're done after clearing.
         if (trades.length === 0) {
-            alert('Sincronização concluída. Sua planilha agora está vazia para corresponder ao aplicativo.');
+            if (!options.silent) {
+                alert('Sincronização concluída. Sua planilha agora está vazia para corresponder ao aplicativo.');
+            }
             return;
         }
         // Step 3: Prepare all data (header + trades) for writing.
@@ -282,7 +320,10 @@ const syncToSheet = async () => {
             valueInputOption: 'USER_ENTERED',
             resource: { values: valuesToWrite },
         });
-        alert(`Sincronização concluída com sucesso! ${trades.length} operação(ões) espelhada(s) na planilha.`);
+
+        if (!options.silent) {
+            alert(`Sincronização concluída com sucesso! ${trades.length} operação(ões) espelhada(s) na planilha.`);
+        }
     }
     catch (err) {
         console.error('Erro na sincronização:', err);
@@ -293,7 +334,9 @@ const syncToSheet = async () => {
         else if (err.message) {
             errorMessage = err.message;
         }
-        alert(`Erro: ${errorMessage}`);
+        if (!options.silent) {
+            alert(`Erro: ${errorMessage}`);
+        }
     }
     finally {
         if (syncButton) {
@@ -404,16 +447,18 @@ const addTrade = (event) => {
     const formData = new FormData(form);
     
     const side = formData.get('side');
-    const lots = parseFloat(formData.get('lots'));
-    const entryPrice = parseFloat(formData.get('entry-price'));
-    const exitPrice = parseFloat(formData.get('exit-price'));
+    const lots = parseLocaleNumber(formData.get('lots'));
+    const entryPrice = parseLocaleNumber(formData.get('entry-price'));
+    const exitPrice = parseLocaleNumber(formData.get('exit-price'));
     const { points, result } = calculateTradeMetrics(side, lots, entryPrice, exitPrice);
+
+    const nextTradeNumber = trades.length > 0 ? Math.max(...trades.map(t => t.tradeNumber)) + 1 : 1;
 
     /** @type {Trade} */
     const newTrade = {
         id: Date.now(),
         asset: formData.get('asset'),
-        tradeNumber: trades.length + 1,
+        tradeNumber: nextTradeNumber,
         side,
         date: formData.get('date'),
         lots,
@@ -430,6 +475,10 @@ const addTrade = (event) => {
     trades.push(newTrade);
     updateRegOptionsIfNeeded(newTrade);
     saveState();
+
+    if (googleAuthState.isSignedIn) {
+        syncToSheet({ silent: true });
+    }
     
     const assetToKeep = form.elements.namedItem('asset').value;
     const dateToKeep = form.elements.namedItem('date').value;
@@ -455,9 +504,9 @@ const updateTrade = (event) => {
     const formData = new FormData(form);
 
     const side = formData.get('side');
-    const lots = parseFloat(formData.get('lots'));
-    const entryPrice = parseFloat(formData.get('entry-price'));
-    const exitPrice = parseFloat(formData.get('exit-price'));
+    const lots = parseLocaleNumber(formData.get('lots'));
+    const entryPrice = parseLocaleNumber(formData.get('entry-price'));
+    const exitPrice = parseLocaleNumber(formData.get('exit-price'));
     const { points, result } = calculateTradeMetrics(side, lots, entryPrice, exitPrice);
 
     const updatedTrade = {
@@ -483,6 +532,11 @@ const updateTrade = (event) => {
 
     updateRegOptionsIfNeeded(updatedTrade);
     saveState();
+
+    if (googleAuthState.isSignedIn) {
+        syncToSheet({ silent: true });
+    }
+
     closeEditModal();
 };
 
@@ -503,6 +557,11 @@ const confirmDelete = () => {
     if (deletingTradeId === null) return;
     trades = trades.filter(t => t.id !== deletingTradeId);
     saveState();
+
+    if (googleAuthState.isSignedIn) {
+        syncToSheet({ silent: true });
+    }
+
     closeDeleteModal();
 };
 
@@ -797,6 +856,9 @@ const handleImport = (event) => {
             if (newTrades.length > 0) {
                 trades = [...trades, ...newTrades].sort((a, b) => a.id - b.id);
                 saveState();
+                if (googleAuthState.isSignedIn) {
+                    syncToSheet({ silent: true });
+                }
                 render();
                 alert(`${newTrades.length} nova(s) operação(ões) importada(s) com sucesso!`);
             } else {
@@ -845,7 +907,7 @@ const updateFilters = (event) => {
 // --- RENDERING ---
 const renderAIInsightCard = () => {
     let content = 'Registre uma operação para receber uma análise.';
-    if (!ai) {
+    if (aiInitializationError) {
         content = `
             <p style="color: var(--loss-color); margin-bottom: 0.5rem;"><strong>Falha na inicialização da IA.</strong></p>
             <p style="font-size: 0.9rem; color: var(--text-secondary-color);">As funcionalidades de IA estão desativadas. Causa provável: A chave da API não está configurada corretamente no ambiente.</p>
@@ -892,7 +954,7 @@ function render() {
                     ${renderTradeHistory(filteredTrades)}
                 </div>
                 <div class="actions-footer">
-                    <button id="export-pdf" class="btn btn-secondary" ${!ai ? 'disabled title="Funcionalidade de IA desativada. Verifique a configuração da API."' : ''}>Exportar Relatório IA</button>
+                    <button id="export-pdf" class="btn btn-secondary" ${!!aiInitializationError ? 'disabled title="Funcionalidade de IA desativada. Verifique a configuração da API."' : ''}>Exportar Relatório IA</button>
                     <button id="export-csv" class="btn btn-secondary">Exportar CSV</button>
                     <label for="import-csv-input" class="btn btn-secondary">Importar CSV</label>
                     <input type="file" id="import-csv-input" accept=".csv" style="display: none;">
@@ -918,9 +980,9 @@ const renderGoogleSheetsCard = () => {
         <div class="status ${isConnected ? 'connected' : 'disconnected'}">
             ${isConnected ? `Status: ${googleAuthState.user}` : 'Status: Desconectado'}
         </div>
-        <div class="form-group">
-            <label for="spreadsheet-id">ID da Planilha</label>
-            <input type="text" id="spreadsheet-id" name="spreadsheet-id" placeholder="Cole o ID da sua planilha aqui" value="${spreadsheetId}">
+        <div class="spreadsheet-info">
+            <p>Planilha de destino:</p>
+            <a href="https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit" target="_blank" rel="noopener noreferrer">Acessar Planilha</a>
         </div>
         <div class="actions">
             ${!isConnected
@@ -958,17 +1020,17 @@ const renderFormFields = (tradeData) => {
             </div>
             <div class="form-group">
                 <label for="lots">Lotes (Qtd.)</label>
-                <input type="number" id="lots" name="lots" required min="1" value="${tradeData.lots || 1}">
+                <input type="text" inputmode="decimal" id="lots" name="lots" required value="${tradeData.lots || 1}">
             </div>
         </div>
         <div class="form-columns">
             <div class="form-group">
                 <label for="entry-price">Preço Entrada</label>
-                <input type="number" id="entry-price" name="entry-price" required step="0.5" value="${tradeData.entryPrice || ''}">
+                <input type="text" inputmode="decimal" id="entry-price" name="entry-price" required step="0.5" value="${tradeData.entryPrice || ''}">
             </div>
             <div class="form-group">
                 <label for="exit-price">Preço Saída</label>
-                <input type="number" id="exit-price" name="exit-price" required step="0.5" value="${tradeData.exitPrice || ''}">
+                <input type="text" inputmode="decimal" id="exit-price" name="exit-price" required step="0.5" value="${tradeData.exitPrice || ''}">
             </div>
         </div>
         <div class="form-group">
@@ -1269,18 +1331,7 @@ const attachEventListeners = () => {
     // Google Sheets listeners
     document.getElementById('auth-sheets')?.addEventListener('click', handleAuthClick);
     document.getElementById('signout-sheets')?.addEventListener('click', handleSignoutClick);
-    document.getElementById('sync-sheets')?.addEventListener('click', syncToSheet);
-    document.getElementById('spreadsheet-id')?.addEventListener('change', (e) => {
-        const input = e.target;
-        const value = input.value;
-        if (/\s/.test(value)) {
-            alert('O ID da Planilha não pode conter espaços. Por favor, insira um ID válido.');
-            input.value = spreadsheetId; // Revert to the last valid ID
-            return;
-        }
-        spreadsheetId = value;
-        saveState();
-    });
+    document.getElementById('sync-sheets')?.addEventListener('click', () => syncToSheet());
 };
 
 const loadGoogleApiScripts = () => {
@@ -1303,12 +1354,20 @@ const loadGoogleApiScripts = () => {
 const initializeApp = () => {
     loadState();
     loadGoogleApiScripts();
-    
     try {
-        ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    } catch (error) {
-         aiInitializationError = error;
-         console.error("AI Initialization Failed:", aiInitializationError);
+        // FIX: Safely access process.env.API_KEY to prevent "process is not defined" ReferenceError
+        // in browser environments that don't have a polyfill or build-time replacement.
+        const apiKey = (typeof process !== 'undefined' && process.env && process.env.API_KEY)
+            ? process.env.API_KEY
+            : undefined;
+        if (!apiKey) {
+            throw new Error("A chave de API (API_KEY) não está configurada no ambiente. As funcionalidades de IA estão desativadas.");
+        }
+        ai = new GoogleGenAI({ apiKey: apiKey });
+    }
+    catch (error) {
+        aiInitializationError = error;
+        console.error("AI Initialization Failed:", error.message);
     }
     render();
 };
