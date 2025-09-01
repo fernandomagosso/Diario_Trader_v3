@@ -257,6 +257,14 @@ const syncToSheet = async (options: { silent?: boolean } = {}) => {
     }
 
     const sheetName = 'Trades';
+    const headerRow = [
+        'ID', 'Ativo', '# Operação', 'Lado', 'Data', 'Lotes', 'Preço Entrada',
+        'Preço Saída', 'Pontos', 'Resultado R$', 'Região', 'Estrutura', 'Gatilho', 'Notas'
+    ];
+    const tradeToRow = (t: Trade) => [
+        t.id, t.asset, t.tradeNumber, t.side, t.date, t.lots, t.entryPrice,
+        t.exitPrice, t.points, t.result, t.region, t.structure, t.trigger, t.notes || ''
+    ];
 
     try {
         // Step 1: Ensure the sheet exists, create if not.
@@ -266,7 +274,7 @@ const syncToSheet = async (options: { silent?: boolean } = {}) => {
             });
             const sheetExists = spreadsheet.result.sheets.some((s: any) => s.properties.title === sheetName);
             if (!sheetExists) {
-                 await gapi.client.sheets.spreadsheets.batchUpdate({
+                await gapi.client.sheets.spreadsheets.batchUpdate({
                     spreadsheetId: spreadsheetId,
                     resource: { requests: [{ addSheet: { properties: { title: sheetName } } }] },
                 });
@@ -278,41 +286,82 @@ const syncToSheet = async (options: { silent?: boolean } = {}) => {
             throw err;
         }
 
-        // Step 2: Clear the existing sheet data to ensure a clean slate.
-        await gapi.client.sheets.spreadsheets.values.clear({
+        // Step 2: Get current data from the sheet to map existing trades.
+        const getResponse = await gapi.client.sheets.spreadsheets.values.get({
             spreadsheetId: spreadsheetId,
             range: sheetName,
         });
 
-        // If there are no trades, we're done after clearing.
-        if (trades.length === 0) {
-            if (!options.silent) {
-                alert('Sincronização concluída. Sua planilha agora está vazia para corresponder ao aplicativo.');
-            }
-            return;
+        const sheetValues = getResponse.result.values || [];
+        const sheetHeader = sheetValues[0] || [];
+        const headerIsMissingOrInvalid = headerRow.some((h, i) => h !== sheetHeader[i]);
+        
+        const sheetTradesMap = new Map<string, number>(); // Map<id_string, row_index_1_based>
+        if (!headerIsMissingOrInvalid) {
+            sheetValues.slice(1).forEach((row, index) => {
+                const id = row[0];
+                if (id) {
+                    // index is 0-based for the sliced array (data rows).
+                    // Sheet row index is index + 2.
+                    sheetTradesMap.set(String(id), index + 2);
+                }
+            });
         }
 
-        // Step 3: Prepare all data (header + trades) for writing.
-        const headerRow = [
-            'ID', 'Ativo', '# Operação', 'Lado', 'Data', 'Lotes', 'Preço Entrada',
-            'Preço Saída', 'Pontos', 'Resultado R$', 'Região', 'Estrutura', 'Gatilho', 'Notas'
-        ];
-        const tradeRows = trades.map(t => [
-            t.id, t.asset, t.tradeNumber, t.side, t.date, t.lots, t.entryPrice,
-            t.exitPrice, t.points, t.result, t.region, t.structure, t.trigger, t.notes || ''
-        ]);
-        const valuesToWrite = [headerRow, ...tradeRows];
+        // Step 3: Categorize local trades into updates (exist in sheet) and appends (new)
+        const dataForBatchUpdate: { range: string; values: (string | number)[][]; }[] = [];
+        const valuesToAppend: (string | number)[][] = [];
 
-        // Step 4: Write all data to the sheet.
-        await gapi.client.sheets.spreadsheets.values.update({
-            spreadsheetId: spreadsheetId,
-            range: `${sheetName}!A1`,
-            valueInputOption: 'USER_ENTERED',
-            resource: { values: valuesToWrite },
-        });
+        for (const trade of trades) {
+            const rowIndex = sheetTradesMap.get(String(trade.id));
+            if (rowIndex) { // Trade exists -> UPDATE
+                dataForBatchUpdate.push({
+                    range: `${sheetName}!A${rowIndex}`,
+                    values: [tradeToRow(trade)],
+                });
+            } else { // Trade is new -> APPEND
+                valuesToAppend.push(tradeToRow(trade));
+            }
+        }
 
+        // Step 4: Execute sheet modifications
+        
+        // Ensure header is present and correct before proceeding
+        if (headerIsMissingOrInvalid) {
+            await gapi.client.sheets.spreadsheets.values.update({
+                spreadsheetId: spreadsheetId,
+                range: `${sheetName}!A1`,
+                valueInputOption: 'USER_ENTERED',
+                resource: { values: [headerRow] },
+            });
+        }
+        
+        // Perform batch update for existing trades
+        if (dataForBatchUpdate.length > 0) {
+            await gapi.client.sheets.spreadsheets.values.batchUpdate({
+                spreadsheetId: spreadsheetId,
+                resource: {
+                    valueInputOption: 'USER_ENTERED',
+                    data: dataForBatchUpdate,
+                },
+            });
+        }
+
+        // Append all new trades in a single call
+        if (valuesToAppend.length > 0) {
+            await gapi.client.sheets.spreadsheets.values.append({
+                spreadsheetId: spreadsheetId,
+                range: sheetName, // Appending to the table will find the first empty row
+                valueInputOption: 'USER_ENTERED',
+                insertDataOption: 'INSERT_ROWS',
+                resource: { values: valuesToAppend },
+            });
+        }
+        
         if (!options.silent) {
-            alert(`Sincronização concluída com sucesso! ${trades.length} operação(ões) espelhada(s) na planilha.`);
+            const updatedCount = dataForBatchUpdate.length;
+            const appendedCount = valuesToAppend.length;
+            alert(`Sincronização concluída!\n- ${updatedCount} operação(ões) atualizada(s).\n- ${appendedCount} nova(s) operação(ões) adicionada(s).`);
         }
 
     } catch (err: any) {
