@@ -715,7 +715,8 @@ const updateTrade = (event) => {
         syncToSheet({ silent: true });
     }
 
-    closeEditModal();
+    editingTrade = null;
+    render();
 };
 
 /**
@@ -744,12 +745,13 @@ const confirmDelete = () => {
 /**
  * @param {number} id
  */
-const openEditModal = (id) => {
+const startEditingTrade = (id) => {
     editingTrade = trades.find(t => t.id === id) || null;
     render();
+    document.querySelector('.left-panel')?.scrollIntoView({ behavior: 'smooth' });
 };
 
-const closeEditModal = () => {
+const cancelEditing = () => {
     editingTrade = null;
     render();
 };
@@ -1117,14 +1119,18 @@ const renderAIInsightCard = () => {
 function render() {
     const filteredTrades = applyFilters();
     const today = new Date().toISOString().split('T')[0];
+    const isEditing = editingTrade !== null;
 
     appRoot.innerHTML = `
         <div class="left-panel">
             <div class="card">
-                <h2>Registrar Operação</h2>
-                <form id="trade-form" novalidate>
-                    ${renderFormFields( { date: today, asset: 'WDOFUT', lots: 1 } )}
-                    <button type="submit" class="btn btn-primary">Adicionar Operação</button>
+                <h2>${isEditing ? 'Editar Operação' : 'Registrar Operação'}</h2>
+                <form id="${isEditing ? 'edit-trade-form' : 'trade-form'}" novalidate>
+                    ${renderFormFields(isEditing ? editingTrade : { date: today, asset: 'WDOFUT', lots: 1 })}
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">${isEditing ? 'Salvar Alterações' : 'Adicionar Operação'}</button>
+                        ${isEditing ? `<button type="button" id="cancel-edit-btn" class="btn btn-secondary">Cancelar</button>` : ''}
+                    </div>
                 </form>
             </div>
             ${renderAIInsightCard()}
@@ -1154,7 +1160,6 @@ function render() {
             </div>
         </div>
         <div id="modal-container">
-            ${renderEditModal()}
             ${renderDeleteModal()}
         </div>
     `;
@@ -1257,28 +1262,6 @@ const renderFormFields = (tradeData) => {
         <div class="form-group">
             <label for="notes">Notas Adicionais (IA)</label>
             <textarea id="notes" name="notes" rows="4">${tradeData.notes || ''}</textarea>
-        </div>
-    `;
-};
-
-
-const renderEditModal = () => {
-    if (!editingTrade) return '';
-    const mainContent = document.querySelector('main');
-    if (mainContent) mainContent.setAttribute('aria-hidden', 'true');
-
-    return `
-        <div class="modal-overlay">
-            <div class="modal-content card" role="dialog" aria-modal="true" aria-labelledby="edit-modal-title">
-                <div class="modal-header">
-                    <h2 id="edit-modal-title">Editar Operação</h2>
-                    <button class="btn-close-modal" aria-label="Fechar modal">&times;</button>
-                </div>
-                <form id="edit-trade-form" novalidate>
-                    ${renderFormFields(editingTrade)}
-                    <button type="submit" class="btn btn-primary">Salvar Alterações</button>
-                </form>
-            </div>
         </div>
     `;
 };
@@ -1486,6 +1469,8 @@ const renderCharts = (data) => {
 
 const attachEventListeners = () => {
     document.getElementById('trade-form')?.addEventListener('submit', addTrade);
+    document.getElementById('edit-trade-form')?.addEventListener('submit', updateTrade);
+    document.getElementById('cancel-edit-btn')?.addEventListener('click', cancelEditing);
     document.getElementById('export-pdf')?.addEventListener('click', exportToPDF);
     document.getElementById('export-csv')?.addEventListener('click', exportToCSV);
     document.getElementById('import-csv-input')?.addEventListener('change', handleImport);
@@ -1502,7 +1487,7 @@ const attachEventListeners = () => {
         const deleteButton = target.closest('.btn-delete');
         if (editButton) {
             const id = parseInt(editButton.getAttribute('data-id'), 10);
-            openEditModal(id);
+            startEditingTrade(id);
         }
         if (deleteButton) {
             const id = parseInt(deleteButton.getAttribute('data-id'), 10);
@@ -1510,18 +1495,14 @@ const attachEventListeners = () => {
         }
     });
 
-    const modal = document.querySelector('.modal-overlay');
-    if (modal) {
-        modal.querySelector('.btn-close-modal')?.addEventListener('click', editingTrade ? closeEditModal : closeDeleteModal);
-        modal.addEventListener('click', (e) => {
+    const deleteModal = document.querySelector('.modal-overlay');
+    if (deleteModal) {
+        deleteModal.querySelector('.btn-close-modal')?.addEventListener('click', closeDeleteModal);
+        deleteModal.addEventListener('click', (e) => {
             if (e.target === e.currentTarget) {
-                editingTrade ? closeEditModal() : closeDeleteModal();
+                closeDeleteModal();
             }
         });
-    }
-
-    if (editingTrade) {
-        document.getElementById('edit-trade-form')?.addEventListener('submit', updateTrade);
     }
 
     if (deletingTradeId !== null) {

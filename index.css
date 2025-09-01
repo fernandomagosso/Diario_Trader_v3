@@ -91,7 +91,7 @@ main {
 }
 
 .form-group:last-child {
-    margin-bottom: 1.5rem;
+    margin-bottom: 0;
 }
 
 .form-group label {
@@ -183,6 +183,16 @@ form .btn {
 
 .btn-secondary:hover {
     background-color: #444;
+}
+
+.form-actions {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1.5rem;
+}
+
+.form-actions .btn {
+    flex: 1;
 }
 
 .dashboard {
