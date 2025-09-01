@@ -130,14 +130,11 @@ let isAuthorizingInteractively = false;
 
 // --- STATE MANAGEMENT & PERSISTENCE ---
 const saveState = () => {
-    localStorage.setItem('trades', JSON.stringify(trades));
     localStorage.setItem('regOptions', JSON.stringify(regOptions));
 };
 
 const loadState = () => {
-    const savedTrades = localStorage.getItem('trades');
     const savedRegOptions = localStorage.getItem('regOptions');
-    if (savedTrades) trades = JSON.parse(savedTrades);
     if (savedRegOptions) regOptions = JSON.parse(savedRegOptions);
 };
 
