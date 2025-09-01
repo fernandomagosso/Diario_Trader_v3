@@ -488,3 +488,60 @@ form .btn {
     border-color: var(--loss-color);
     box-shadow: 0 0 0 2px rgba(239, 83, 80, 0.3);
 }
+
+/* API Key Form Styles */
+.api-key-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.api-key-form input {
+    width: 100%;
+    padding: 0.75rem;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    font-size: 0.9rem;
+}
+
+.api-key-form input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(0, 170, 255, 0.3);
+}
+
+.api-key-form .btn {
+    width: 100%;
+}
+
+.api-key-status {
+    font-size: 0.85rem;
+    text-align: center;
+    min-height: 1.2em;
+    margin-top: 0.25rem;
+}
+
+.api-key-status.loading {
+    color: var(--text-secondary-color);
+}
+
+.api-key-status.error {
+    color: var(--loss-color);
+}
+
+/* Screen-reader only utility */
+.sr-only {
+	border: 0 !important;
+	clip: rect(1px, 1px, 1px, 1px) !important;
+	-webkit-clip-path: inset(50%) !important;
+	clip-path: inset(50%) !important;
+	height: 1px !important;
+	margin: -1px !important;
+	overflow: hidden !important;
+	padding: 0 !important;
+	position: absolute !important;
+	width: 1px !important;
+	white-space: nowrap !important;
+}

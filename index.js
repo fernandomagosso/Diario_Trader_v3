@@ -376,6 +376,73 @@ const updateRegOptionsIfNeeded = (tradeData) => {
     return optionsChanged;
 };
 
+const handleApiKeySubmit = async (event) => {
+    event.preventDefault();
+    const form = event.target;
+    const apiKeyInput = form.elements.namedItem('api-key-input');
+    const apiKey = apiKeyInput.value.trim();
+    const statusEl = document.getElementById('api-key-status');
+
+    if (!apiKey) {
+        if (statusEl) {
+            statusEl.textContent = 'Por favor, insira uma chave de API.';
+            statusEl.className = 'api-key-status error';
+        }
+        return;
+    }
+
+    if (statusEl) {
+        statusEl.textContent = 'Validando chave...';
+        statusEl.className = 'api-key-status loading';
+    }
+    
+    try {
+        const tempAi = new GoogleGenAI({ apiKey });
+        await tempAi.models.generateContent({ model: 'gemini-2.5-flash', contents: 'test' });
+
+        sessionStorage.setItem('userApiKey', apiKey);
+        await attemptAiInitialization();
+        render();
+
+    } catch (error) {
+        console.error("API Key validation failed:", error);
+        if (statusEl) {
+            statusEl.textContent = 'Chave de API inválida ou erro de rede. Tente novamente.';
+            statusEl.className = 'api-key-status error';
+        }
+        sessionStorage.removeItem('userApiKey');
+        ai = null;
+    }
+};
+
+const attemptAiInitialization = async () => {
+    ai = null;
+    aiInitializationError = null;
+    
+    const userApiKey = sessionStorage.getItem('userApiKey');
+    const envApiKey = (typeof process !== 'undefined' && process.env?.API_KEY) ? process.env.API_KEY : null;
+    const apiKey = userApiKey || envApiKey;
+
+    if (!apiKey) {
+        aiInitializationError = new Error("A chave da API não está configurada no ambiente.");
+        console.warn("AI Initialization Failed: API_KEY is not configured.");
+        return;
+    }
+
+    try {
+        const genAI = new GoogleGenAI({ apiKey });
+        await genAI.models.generateContent({ model: 'gemini-2.5-flash', contents: 'ping' });
+        ai = genAI;
+    } catch (error) {
+        aiInitializationError = new Error("A chave de API fornecida é inválida ou a conexão falhou.");
+        console.error("AI Initialization Failed:", error.message);
+        if (userApiKey) {
+            sessionStorage.removeItem('userApiKey');
+        }
+    }
+};
+
+
 /**
  * @param {Trade} trade
  */
@@ -713,7 +780,7 @@ const addWrappedTextWithBold = (pdf, text, x, y, maxWidth, lineHeight) => {
 
 const exportToPDF = async () => {
     if (!ai) {
-        alert("Cliente de IA não inicializado.");
+        alert("Cliente de IA não inicializado. Forneça uma chave de API válida.");
         return;
     }
     if (trades.length === 0) {
@@ -964,17 +1031,32 @@ const updateFilters = (event) => {
 
 // --- RENDERING ---
 const renderAIInsightCard = () => {
-    let content = 'Registre uma operação para receber uma análise.';
-    if (aiInitializationError) {
-        content = `
-            <p style="color: var(--loss-color); margin-bottom: 0.5rem;"><strong>Falha na inicialização da IA.</strong></p>
-            <p style="font-size: 0.9rem; color: var(--text-secondary-color);">As funcionalidades de IA estão desativadas. Causa provável: A chave da API não está configurada corretamente no ambiente.</p>
+    if (ai) {
+        return `
+            <div class="card ai-insight" aria-live="polite">
+                <h3>💡 Insight da IA</h3>
+                <div id="ai-insight-content">Registre uma operação para receber uma análise.</div>
+            </div>
         `;
     }
+
+    const errorMessage = aiInitializationError?.message || "Forneça uma chave de API para habilitar os recursos de IA.";
+    
     return `
-        <div class="card ai-insight" aria-live="polite">
+        <div class="card ai-insight">
             <h3>💡 Insight da IA</h3>
-            <div id="ai-insight-content">${content}</div>
+            <div id="ai-insight-content">
+                <p style="color: var(--loss-color); margin-bottom: 0.5rem;"><strong>Funcionalidades de IA desativadas.</strong></p>
+                <p style="font-size: 0.9rem; color: var(--text-secondary-color); margin-bottom: 1rem;">
+                    ${errorMessage}
+                </p>
+                <form id="api-key-form" class="api-key-form" novalidate>
+                    <label for="api-key-input" class="sr-only">Chave da API do Google AI</label>
+                    <input type="password" id="api-key-input" name="api-key-input" placeholder="Cole sua chave de API aqui" required>
+                    <button type="submit" class="btn btn-secondary">Salvar Chave</button>
+                    <div id="api-key-status" class="api-key-status" aria-live="assertive"></div>
+                </form>
+            </div>
         </div>
     `;
 };
@@ -1012,7 +1094,7 @@ function render() {
                     ${renderTradeHistory(filteredTrades)}
                 </div>
                 <div class="actions-footer">
-                    <button id="export-pdf" class="btn btn-secondary" ${!!aiInitializationError ? 'disabled title="Funcionalidade de IA desativada. Verifique a configuração da API."' : ''}>Exportar Relatório IA</button>
+                    <button id="export-pdf" class="btn btn-secondary" ${!ai ? 'disabled title="Funcionalidade de IA desativada. Forneça uma chave de API."' : ''}>Exportar Relatório IA</button>
                     <button id="export-csv" class="btn btn-secondary">Exportar CSV</button>
                     <label for="import-csv-input" class="btn btn-secondary">Importar CSV</label>
                     <input type="file" id="import-csv-input" accept=".csv" style="display: none;">
@@ -1355,6 +1437,7 @@ const attachEventListeners = () => {
     document.getElementById('export-pdf')?.addEventListener('click', exportToPDF);
     document.getElementById('export-csv')?.addEventListener('click', exportToCSV);
     document.getElementById('import-csv-input')?.addEventListener('change', handleImport);
+    document.getElementById('api-key-form')?.addEventListener('submit', handleApiKeySubmit);
     
     document.querySelectorAll('.filter-input').forEach(input => {
         input.addEventListener('input', updateFilters);
@@ -1417,24 +1500,12 @@ const loadGoogleApiScripts = () => {
 };
 
 // --- APP START ---
-const initializeApp = () => {
+const initializeApp = async () => {
     loadState();
     loadGoogleApiScripts();
-    try {
-        // FIX: Safely access process.env.API_KEY to prevent "process is not defined" ReferenceError
-        // in browser environments that don't have a polyfill or build-time replacement.
-        const apiKey = (typeof process !== 'undefined' && process.env && process.env.API_KEY)
-            ? process.env.API_KEY
-            : undefined;
-        if (!apiKey) {
-            throw new Error("A chave de API (API_KEY) não está configurada no ambiente. As funcionalidades de IA estão desativadas.");
-        }
-        ai = new GoogleGenAI({ apiKey: apiKey });
-    }
-    catch (error) {
-        aiInitializationError = error;
-        console.error("AI Initialization Failed:", error.message);
-    }
+    
+    await attemptAiInitialization();
+
     render();
 };
 
