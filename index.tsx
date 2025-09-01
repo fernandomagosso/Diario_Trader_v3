@@ -1432,7 +1432,7 @@ const renderManageOptionsModal = () => {
                     <form id="add-option-form" class="add-option-form">
                          <label for="new-option-input" class="sr-only">Nova opção</label>
                          <input type="text" id="new-option-input" name="new-option-input" placeholder="Adicionar nova ${title.slice(0, -1).toLowerCase()}" required>
-                         <button type="submit" class="btn btn-secondary">Adicionar</button>
+                         <button type="submit" class="btn btn-primary">Adicionar</button>
                     </form>
                 </div>
             </div>

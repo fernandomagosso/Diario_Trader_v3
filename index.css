@@ -96,8 +96,9 @@ main {
 
 .form-label-group {
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-start;
     align-items: center;
+    gap: 0.5rem;
     margin-bottom: 0.5rem;
 }
 
@@ -372,12 +373,16 @@ form .btn {
     padding: 0.25rem;
     margin: 0 0.25rem;
     opacity: 0.7;
-    transition: opacity 0.2s, transform 0.2s;
+    transition: opacity 0.2s, transform 0.2s, color 0.2s;
 }
 
 .btn-icon:hover {
     opacity: 1;
     transform: scale(1.1);
+}
+
+.btn-delete-option:hover {
+    color: var(--loss-color);
 }
 
 /* Modal Styles */
@@ -537,6 +542,11 @@ form .btn {
     align-items: center;
     padding: 0.75rem;
     border-bottom: 1px solid var(--border-color);
+    transition: background-color 0.2s ease;
+}
+
+.options-list li:not(.empty-state):hover {
+    background-color: rgba(255, 255, 255, 0.05);
 }
 
 .options-list li:last-child {
@@ -546,7 +556,8 @@ form .btn {
 .options-list li.empty-state {
     justify-content: center;
     color: var(--text-secondary-color);
-    padding: 1.5rem;
+    padding: 2rem 1rem;
+    font-style: italic;
 }
 
 .add-option-form {
