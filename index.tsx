@@ -546,6 +546,13 @@ const updateRegOptionsIfNeeded = (tradeData: { region: string, structure: string
         regOptions.triggers.push(newTrigger);
         optionsChanged = true;
     }
+
+    if (optionsChanged) {
+        saveState();
+        if (googleAuthState.isSignedIn) {
+            syncRegOptionsToSheet({ silent: true });
+        }
+    }
     return optionsChanged;
 };
 
@@ -755,12 +762,7 @@ const addTrade = (event: SubmitEvent) => {
     };
     
     trades.push(newTrade);
-    if (updateRegOptionsIfNeeded(newTrade)) {
-        saveState();
-        if (googleAuthState.isSignedIn) {
-            syncRegOptionsToSheet({ silent: true });
-        }
-    }
+    updateRegOptionsIfNeeded(newTrade);
 
     if (googleAuthState.isSignedIn) {
         syncToSheet({ silent: true });
@@ -817,12 +819,7 @@ const updateTrade = (event: SubmitEvent) => {
         trades[tradeIndex] = updatedTrade;
     }
 
-    if (updateRegOptionsIfNeeded(updatedTrade)) {
-        saveState();
-        if (googleAuthState.isSignedIn) {
-            syncRegOptionsToSheet({ silent: true });
-        }
-    }
+    updateRegOptionsIfNeeded(updatedTrade);
     
     if (googleAuthState.isSignedIn) {
         syncToSheet({ silent: true });
