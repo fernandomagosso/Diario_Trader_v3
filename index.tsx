@@ -702,11 +702,9 @@ const confirmDelete = () => {
     if (deletingTradeId === null) return;
     trades = trades.filter(t => t.id !== deletingTradeId);
     saveState();
-    
-    if (googleAuthState.isSignedIn) {
-        syncToSheet({ silent: true });
-    }
-
+    // A sincronização não é chamada aqui para garantir que nenhuma
+    // operação seja removida da planilha. A planilha funciona como um log
+    // permanente e um backup de todas as operações inseridas.
     closeDeleteModal();
 };
 
@@ -1048,7 +1046,9 @@ const renderAIInsightCard = () => {
     }
 
     // If AI initialization failed or is pending user input
-    const errorMessage = aiInitializationError?.message || "Forneça uma chave de API para habilitar os recursos de IA.";
+    const promptMessage = aiInitializationError?.message.includes('inválida')
+        ? 'A chave de API fornecida é inválida. Tente novamente.'
+        : 'Para habilitar os recursos de IA, por favor, informe sua chave de API do Google Gemini abaixo.';
     
     return `
         <div class="card ai-insight">
@@ -1056,12 +1056,12 @@ const renderAIInsightCard = () => {
             <div id="ai-insight-content">
                 <p style="color: var(--loss-color); margin-bottom: 0.5rem;"><strong>Funcionalidades de IA desativadas.</strong></p>
                 <p style="font-size: 0.9rem; color: var(--text-secondary-color); margin-bottom: 1rem;">
-                    ${errorMessage}
+                    ${promptMessage}
                 </p>
                 <form id="api-key-form" class="api-key-form" novalidate>
-                    <label for="api-key-input" class="sr-only">Chave da API do Google AI</label>
-                    <input type="password" id="api-key-input" name="api-key-input" placeholder="Cole sua chave de API aqui" required>
-                    <button type="submit" class="btn btn-secondary">Salvar Chave</button>
+                    <label for="api-key-input" class="sr-only">Chave da API do Google Gemini</label>
+                    <input type="password" id="api-key-input" name="api-key-input" placeholder="Insira sua chave de API válida do Gemini" required>
+                    <button type="submit" class="btn btn-secondary">Validar e Usar Chave</button>
                     <div id="api-key-status" class="api-key-status" aria-live="assertive"></div>
                 </form>
             </div>
