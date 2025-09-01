@@ -108,6 +108,7 @@ const appRoot = document.getElementById('app-root')!;
 let trades: Trade[] = [];
 let editingTrade: Trade | null = null;
 let deletingTradeId: number | null = null;
+let managingOptionsFor: 'regions' | 'structures' | 'triggers' | null = null;
 let filters: Filters = { asset: '', side: 'Todos', date: '', result: 'Todos' };
 let regOptions: RegOptions = {
     regions: ['Região Barata', 'Região Cara', 'Consolidação'],
@@ -120,6 +121,7 @@ const debouncedRender = debounce(render, 300);
 // Google Sheets Config
 const GOOGLE_CLIENT_ID = '312225788265-5akif4pd2ebspjuui79m6qe1807an145.apps.googleusercontent.com';
 const GOOGLE_SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
+const CONFIG_SHEET_NAME = 'Config';
 let isGapiReady = false;
 let isGisReady = false;
 let googleAuthState: GoogleAuthState = { isSignedIn: false, user: '' };
@@ -154,6 +156,7 @@ const gisLoaded = () => {
                 gapi.client.setToken(tokenResponse);
                 googleAuthState.isSignedIn = true;
                 googleAuthState.user = 'Conectado';
+                fetchRegOptionsFromSheet();
                 render();
             } else {
                 console.error('Authentication failed: No access token in response.', tokenResponse);
@@ -234,6 +237,107 @@ const handleSignoutClick = () => {
             googleAuthState.user = '';
             render();
         });
+    }
+};
+
+const fetchRegOptionsFromSheet = async () => {
+    if (!googleAuthState.isSignedIn || !spreadsheetId) return;
+
+    try {
+        const spreadsheet = await gapi.client.sheets.spreadsheets.get({ spreadsheetId });
+        const sheetExists = spreadsheet.result.sheets.some((s: any) => s.properties.title === CONFIG_SHEET_NAME);
+        if (!sheetExists) {
+            await syncRegOptionsToSheet({ silent: true, createSheet: true });
+            return;
+        }
+
+        const response = await gapi.client.sheets.spreadsheets.values.get({
+            spreadsheetId: spreadsheetId,
+            range: `${CONFIG_SHEET_NAME}!A:C`,
+        });
+
+        const values = response.result.values || [];
+        const sheetRegions = new Set<string>();
+        const sheetStructures = new Set<string>();
+        const sheetTriggers = new Set<string>();
+
+        if (values.length > 1) { // A1,B1,C1 are headers
+            for (let i = 1; i < values.length; i++) {
+                if (values[i][0]) sheetRegions.add(values[i][0]);
+                if (values[i][1]) sheetStructures.add(values[i][1]);
+                if (values[i][2]) sheetTriggers.add(values[i][2]);
+            }
+        }
+
+        let updated = false;
+        const mergedRegions = [...new Set([...regOptions.regions, ...sheetRegions])].sort();
+        if (mergedRegions.length !== regOptions.regions.length || !mergedRegions.every((v, i) => v === regOptions.regions[i])) {
+            regOptions.regions = mergedRegions;
+            updated = true;
+        }
+
+        const mergedStructures = [...new Set([...regOptions.structures, ...sheetStructures])].sort();
+         if (mergedStructures.length !== regOptions.structures.length || !mergedStructures.every((v, i) => v === regOptions.structures[i])) {
+            regOptions.structures = mergedStructures;
+            updated = true;
+        }
+        
+        const mergedTriggers = [...new Set([...regOptions.triggers, ...sheetTriggers])].sort();
+        if (mergedTriggers.length !== regOptions.triggers.length || !mergedTriggers.every((v, i) => v === regOptions.triggers[i])) {
+            regOptions.triggers = mergedTriggers;
+            updated = true;
+        }
+
+        if (updated) {
+            saveState();
+            render();
+            syncRegOptionsToSheet({ silent: true });
+        }
+
+    } catch (error) {
+        console.error("Failed to fetch regOptions from Google Sheet:", error);
+    }
+};
+
+const syncRegOptionsToSheet = async (options: { silent?: boolean, createSheet?: boolean } = {}) => {
+    if (!googleAuthState.isSignedIn || !spreadsheetId) return;
+
+    try {
+        if (options.createSheet) {
+            await gapi.client.sheets.spreadsheets.batchUpdate({
+                spreadsheetId: spreadsheetId,
+                resource: { requests: [{ addSheet: { properties: { title: CONFIG_SHEET_NAME } } }] },
+            });
+        }
+
+        await gapi.client.sheets.spreadsheets.values.clear({
+            spreadsheetId: spreadsheetId,
+            range: `${CONFIG_SHEET_NAME}!A1:C`,
+        });
+
+        const header = [['Regiões', 'Estruturas', 'Gatilhos']];
+        const maxLength = Math.max(regOptions.regions.length, regOptions.structures.length, regOptions.triggers.length);
+        const values = [];
+        for (let i = 0; i < maxLength; i++) {
+            values.push([
+                regOptions.regions[i] || '',
+                regOptions.structures[i] || '',
+                regOptions.triggers[i] || '',
+            ]);
+        }
+
+        await gapi.client.sheets.spreadsheets.values.update({
+            spreadsheetId: spreadsheetId,
+            range: `${CONFIG_SHEET_NAME}!A1`,
+            valueInputOption: 'USER_ENTERED',
+            resource: { values: [...header, ...values] },
+        });
+
+    } catch (error) {
+        console.error("Failed to sync regOptions to Google Sheet:", error);
+        if (!options.silent) {
+            alert("Falha ao sincronizar as opções de REG com a planilha. Verifique o console.");
+        }
     }
 };
 
@@ -386,6 +490,44 @@ const syncToSheet = async (options: { silent?: boolean } = {}) => {
 
 
 // --- CORE LOGIC ---
+const openManageOptionsModal = (optionType: 'regions' | 'structures' | 'triggers') => {
+    managingOptionsFor = optionType;
+    render();
+};
+
+const closeManageOptionsModal = () => {
+    managingOptionsFor = null;
+    render();
+};
+
+const addRegOption = (event: SubmitEvent) => {
+    event.preventDefault();
+    if (!managingOptionsFor) return;
+
+    const form = event.target as HTMLFormElement;
+    const input = form.elements.namedItem('new-option-input') as HTMLInputElement;
+    const newOption = input.value.trim();
+
+    if (newOption && !regOptions[managingOptionsFor].includes(newOption)) {
+        regOptions[managingOptionsFor].push(newOption);
+        regOptions[managingOptionsFor].sort();
+        saveState();
+        if (googleAuthState.isSignedIn) {
+            syncRegOptionsToSheet({ silent: true });
+        }
+    }
+    render();
+};
+
+const deleteRegOption = (optionType: 'regions' | 'structures' | 'triggers', optionToDelete: string) => {
+    regOptions[optionType] = regOptions[optionType].filter(opt => opt !== optionToDelete);
+    saveState();
+    if (googleAuthState.isSignedIn) {
+        syncRegOptionsToSheet({ silent: true });
+    }
+    render();
+};
+
 const updateRegOptionsIfNeeded = (tradeData: { region: string, structure: string, trigger: string }) => {
     let optionsChanged = false;
     const newRegion = tradeData.region.trim();
@@ -613,8 +755,12 @@ const addTrade = (event: SubmitEvent) => {
     };
     
     trades.push(newTrade);
-    updateRegOptionsIfNeeded(newTrade);
-    saveState();
+    if (updateRegOptionsIfNeeded(newTrade)) {
+        saveState();
+        if (googleAuthState.isSignedIn) {
+            syncRegOptionsToSheet({ silent: true });
+        }
+    }
 
     if (googleAuthState.isSignedIn) {
         syncToSheet({ silent: true });
@@ -671,8 +817,12 @@ const updateTrade = (event: SubmitEvent) => {
         trades[tradeIndex] = updatedTrade;
     }
 
-    updateRegOptionsIfNeeded(updatedTrade);
-    saveState();
+    if (updateRegOptionsIfNeeded(updatedTrade)) {
+        saveState();
+        if (googleAuthState.isSignedIn) {
+            syncRegOptionsToSheet({ silent: true });
+        }
+    }
     
     if (googleAuthState.isSignedIn) {
         syncToSheet({ silent: true });
@@ -1113,6 +1263,7 @@ function render() {
         </div>
         <div id="modal-container">
             ${renderDeleteModal()}
+            ${renderManageOptionsModal()}
         </div>
     `;
     renderGoogleAuthHeader();
@@ -1185,7 +1336,10 @@ const renderFormFields = (tradeData: Partial<Trade>) => {
             </div>
         </div>
         <div class="form-group">
-            <label for="regions">Região</label>
+            <div class="form-label-group">
+                <label for="regions">Região</label>
+                <button type="button" class="btn-icon btn-manage-options" data-option-type="regions" title="Gerenciar Regiões" aria-label="Gerenciar Regiões">⚙️</button>
+            </div>
             <input list="regions-list" id="regions" name="regions" required value="${tradeData.region || ''}">
             <datalist id="regions-list">
                 ${regOptions.regions.map(o => `<option value="${o}">`).join('')}
@@ -1193,7 +1347,10 @@ const renderFormFields = (tradeData: Partial<Trade>) => {
             <div class="error-message" id="regions-error"></div>
         </div>
         <div class="form-group">
-            <label for="structures">Estrutura</label>
+            <div class="form-label-group">
+                <label for="structures">Estrutura</label>
+                <button type="button" class="btn-icon btn-manage-options" data-option-type="structures" title="Gerenciar Estruturas" aria-label="Gerenciar Estruturas">⚙️</button>
+            </div>
             <input list="structures-list" id="structures" name="structures" required value="${tradeData.structure || ''}">
             <datalist id="structures-list">
                 ${regOptions.structures.map(o => `<option value="${o}">`).join('')}
@@ -1201,7 +1358,10 @@ const renderFormFields = (tradeData: Partial<Trade>) => {
             <div class="error-message" id="structures-error"></div>
         </div>
         <div class="form-group">
-            <label for="triggers">Gatilho</label>
+            <div class="form-label-group">
+                <label for="triggers">Gatilho</label>
+                <button type="button" class="btn-icon btn-manage-options" data-option-type="triggers" title="Gerenciar Gatilhos" aria-label="Gerenciar Gatilhos">⚙️</button>
+            </div>
             <input list="triggers-list" id="triggers" name="triggers" required value="${tradeData.trigger || ''}">
             <datalist id="triggers-list">
                 ${regOptions.triggers.map(o => `<option value="${o}">`).join('')}
@@ -1236,6 +1396,48 @@ const renderDeleteModal = () => {
                 <div class="modal-actions">
                     <button class="btn btn-secondary btn-cancel-delete">Cancelar</button>
                     <button class="btn btn-danger btn-confirm-delete">Excluir</button>
+                </div>
+            </div>
+        </div>
+    `;
+};
+
+const renderManageOptionsModal = () => {
+    if (!managingOptionsFor) return '';
+
+    const titleMap = {
+        regions: 'Regiões',
+        structures: 'Estruturas',
+        triggers: 'Gatilhos'
+    };
+    const title = titleMap[managingOptionsFor];
+    const options = regOptions[managingOptionsFor];
+    
+    const mainContent = document.querySelector('main');
+    if (mainContent) mainContent.setAttribute('aria-hidden', 'true');
+
+    return `
+        <div class="modal-overlay">
+            <div class="modal-content card" role="dialog" aria-modal="true" aria-labelledby="manage-options-title">
+                <div class="modal-header">
+                    <h2 id="manage-options-title">Gerenciar ${title}</h2>
+                    <button class="btn-close-modal" aria-label="Fechar modal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <ul class="options-list">
+                        ${options.map(opt => `
+                            <li>
+                                <span>${opt}</span>
+                                <button class="btn-icon btn-delete-option" data-option-type="${managingOptionsFor}" data-option-value="${opt}" title="Excluir" aria-label="Excluir ${opt}">🗑️</button>
+                            </li>
+                        `).join('')}
+                        ${options.length === 0 ? '<li class="empty-state">Nenhuma opção cadastrada.</li>' : ''}
+                    </ul>
+                    <form id="add-option-form" class="add-option-form">
+                         <label for="new-option-input" class="sr-only">Nova opção</label>
+                         <input type="text" id="new-option-input" name="new-option-input" placeholder="Adicionar nova ${title.slice(0, -1).toLowerCase()}" required>
+                         <button type="submit" class="btn btn-secondary">Adicionar</button>
+                    </form>
                 </div>
             </div>
         </div>
@@ -1431,19 +1633,38 @@ const attachEventListeners = () => {
         }
     });
 
-    const deleteModal = document.querySelector('.modal-overlay');
+    document.querySelectorAll('.btn-manage-options').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const optionType = (e.currentTarget as HTMLElement).dataset.optionType as 'regions' | 'structures' | 'triggers';
+            openManageOptionsModal(optionType);
+        });
+    });
+
+    const deleteModal = document.querySelector('.modal-overlay:has(#delete-modal-title)');
     if (deleteModal) {
         deleteModal.querySelector('.btn-close-modal')?.addEventListener('click', closeDeleteModal);
         deleteModal.addEventListener('click', (e) => {
-            if (e.target === e.currentTarget) {
-                closeDeleteModal();
-            }
+            if (e.target === e.currentTarget) closeDeleteModal();
         });
-    }
-
-    if (deletingTradeId !== null) {
         document.querySelector('.btn-confirm-delete')?.addEventListener('click', confirmDelete);
         document.querySelector('.btn-cancel-delete')?.addEventListener('click', closeDeleteModal);
+    }
+    
+    const optionsModal = document.querySelector('.modal-overlay:has(#manage-options-title)');
+    if (optionsModal) {
+        optionsModal.querySelector('#add-option-form')?.addEventListener('submit', addRegOption);
+        optionsModal.querySelector('.btn-close-modal')?.addEventListener('click', closeManageOptionsModal);
+        optionsModal.addEventListener('click', (e) => {
+             if (e.target === e.currentTarget) closeManageOptionsModal();
+        });
+        optionsModal.querySelector('.options-list')?.addEventListener('click', (e) => {
+            const target = e.target as HTMLElement;
+            const deleteButton = target.closest('.btn-delete-option');
+            if (deleteButton) {
+                const { optionType, optionValue } = (deleteButton as HTMLElement).dataset as { optionType: 'regions' | 'structures' | 'triggers', optionValue: string };
+                deleteRegOption(optionType, optionValue);
+            }
+        });
     }
 
     // Google Sheets listeners

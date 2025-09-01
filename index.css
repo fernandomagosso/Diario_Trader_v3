@@ -94,9 +94,16 @@ main {
     margin-bottom: 0;
 }
 
+.form-label-group {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
 .form-group label {
     display: block;
-    margin-bottom: 0.5rem;
+    margin-bottom: 0; /* Handled by form-label-group */
     font-weight: 500;
     color: var(--text-secondary-color);
 }
@@ -510,4 +517,47 @@ form .btn {
 	position: absolute !important;
 	width: 1px !important;
 	white-space: nowrap !important;
+}
+
+/* Options Management Modal */
+.options-list {
+    list-style: none;
+    margin-bottom: 1.5rem;
+    max-height: 250px;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 0.5rem;
+    background-color: var(--bg-color);
+}
+
+.options-list li {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.options-list li:last-child {
+    border-bottom: none;
+}
+
+.options-list li.empty-state {
+    justify-content: center;
+    color: var(--text-secondary-color);
+    padding: 1.5rem;
+}
+
+.add-option-form {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.add-option-form input {
+    flex: 1;
+}
+
+.add-option-form button {
+    flex-shrink: 0;
 }
