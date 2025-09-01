@@ -245,10 +245,8 @@ const handleSignoutClick = () => {
 };
 
 const syncToSheet = async (options: { silent?: boolean } = {}) => {
-    if (!spreadsheetId || /\s/.test(spreadsheetId)) {
-        if (!options.silent) {
-            alert('Por favor, insira um ID da Planilha válido (não pode estar vazio ou conter espaços).');
-        }
+    if (!spreadsheetId) {
+        if (!options.silent) alert('ID da Planilha não configurado.');
         return;
     }
 
@@ -319,15 +317,21 @@ const syncToSheet = async (options: { silent?: boolean } = {}) => {
 
     } catch (err: any) {
         console.error('Erro na sincronização:', err);
-        let errorMessage = 'Falha ao sincronizar. Verifique o console para mais detalhes.';
+        let errorMessage = 'Falha ao sincronizar com a planilha.';
         if (err.result?.error?.message) {
-            errorMessage = err.result.error.message;
+            errorMessage += `\nDetalhes: ${err.result.error.message}`;
         } else if (err.message) {
-            errorMessage = err.message;
+            errorMessage += `\nDetalhes: ${err.message}`;
+        } else {
+            errorMessage += '\nVerifique a conexão e as permissões da planilha.';
         }
-        if (!options.silent) {
-            alert(`Erro: ${errorMessage}`);
-        }
+        
+        const alertPrefix = options.silent 
+            ? 'Erro na sincronização automática em segundo plano.' 
+            : 'Ocorreu um erro ao sincronizar.';
+            
+        alert(`${alertPrefix}\n\n${errorMessage}`);
+
     } finally {
         if (syncButton) {
             syncButton.textContent = 'Sincronizar';
@@ -418,9 +422,55 @@ const calculateTradeMetrics = (side: 'Compra' | 'Venda', lots: number, entryPric
     return { points: parseFloat(points.toFixed(2)), result: parseFloat(result.toFixed(2)) };
 }
 
+const validateTradeForm = (form: HTMLFormElement): boolean => {
+    let isFormValid = true;
+    
+    const fields = [
+        { id: 'asset', required: true },
+        { id: 'date', required: true },
+        { id: 'lots', required: true, isNumeric: true },
+        { id: 'entry-price', required: true, isNumeric: true },
+        { id: 'exit-price', required: true, isNumeric: true },
+        { id: 'regions', required: true },
+        { id: 'structures', required: true },
+        { id: 'triggers', required: true }
+    ];
+
+    fields.forEach(field => {
+        const input = document.getElementById(field.id) as HTMLInputElement;
+        const errorEl = document.getElementById(`${field.id}-error`);
+        if (!input) return;
+
+        input.classList.remove('is-invalid');
+        if (errorEl) errorEl.textContent = '';
+
+        const value = input.value.trim();
+        let errorMessage = '';
+
+        if (field.required && !value) {
+            errorMessage = 'Este campo é obrigatório.';
+        } else if (value && field.isNumeric && isNaN(parseLocaleNumber(value))) {
+            errorMessage = 'Por favor, insira um número válido.';
+        }
+
+        if (errorMessage) {
+            isFormValid = false;
+            input.classList.add('is-invalid');
+            if (errorEl) errorEl.textContent = errorMessage;
+        }
+    });
+
+    return isFormValid;
+};
+
 const addTrade = (event: SubmitEvent) => {
     event.preventDefault();
     const form = event.target as HTMLFormElement;
+
+    if (!validateTradeForm(form)) {
+        return;
+    }
+    
     const formData = new FormData(form);
     
     const side = formData.get('side') as 'Compra' | 'Venda';
@@ -474,6 +524,10 @@ const updateTrade = (event: SubmitEvent) => {
     if (!editingTrade) return;
 
     const form = event.target as HTMLFormElement;
+    if (!validateTradeForm(form)) {
+        return;
+    }
+    
     const formData = new FormData(form);
 
     const side = formData.get('side') as 'Compra' | 'Venda';
@@ -890,7 +944,7 @@ function render() {
         <div class="left-panel">
             <div class="card">
                 <h2>Registrar Operação</h2>
-                <form id="trade-form">
+                <form id="trade-form" novalidate>
                     ${renderFormFields( { date: today, asset: 'WDOFUT', lots: 1 } )}
                     <button type="submit" class="btn btn-primary">Adicionar Operação</button>
                 </form>
@@ -963,10 +1017,12 @@ const renderFormFields = (tradeData: Partial<Trade>) => {
         <div class="form-group">
             <label for="asset">Ativo</label>
             <input type="text" id="asset" name="asset" required value="${tradeData.asset || ''}">
+            <div class="error-message" id="asset-error"></div>
         </div>
         <div class="form-group">
             <label for="date">Data</label>
             <input type="date" id="date" name="date" required value="${tradeData.date || ''}">
+            <div class="error-message" id="date-error"></div>
         </div>
         <div class="form-columns">
             <div class="form-group">
@@ -979,16 +1035,19 @@ const renderFormFields = (tradeData: Partial<Trade>) => {
             <div class="form-group">
                 <label for="lots">Lotes (Qtd.)</label>
                 <input type="text" inputmode="decimal" id="lots" name="lots" required value="${tradeData.lots || 1}">
+                <div class="error-message" id="lots-error"></div>
             </div>
         </div>
         <div class="form-columns">
             <div class="form-group">
                 <label for="entry-price">Preço Entrada</label>
                 <input type="text" inputmode="decimal" id="entry-price" name="entry-price" required step="0.5" value="${tradeData.entryPrice || ''}">
+                <div class="error-message" id="entry-price-error"></div>
             </div>
             <div class="form-group">
                 <label for="exit-price">Preço Saída</label>
                 <input type="text" inputmode="decimal" id="exit-price" name="exit-price" required step="0.5" value="${tradeData.exitPrice || ''}">
+                <div class="error-message" id="exit-price-error"></div>
             </div>
         </div>
         <div class="form-group">
@@ -997,6 +1056,7 @@ const renderFormFields = (tradeData: Partial<Trade>) => {
             <datalist id="regions-list">
                 ${regOptions.regions.map(o => `<option value="${o}">`).join('')}
             </datalist>
+            <div class="error-message" id="regions-error"></div>
         </div>
         <div class="form-group">
             <label for="structures">Estrutura</label>
@@ -1004,6 +1064,7 @@ const renderFormFields = (tradeData: Partial<Trade>) => {
             <datalist id="structures-list">
                 ${regOptions.structures.map(o => `<option value="${o}">`).join('')}
             </datalist>
+            <div class="error-message" id="structures-error"></div>
         </div>
         <div class="form-group">
             <label for="triggers">Gatilho</label>
@@ -1011,6 +1072,7 @@ const renderFormFields = (tradeData: Partial<Trade>) => {
             <datalist id="triggers-list">
                 ${regOptions.triggers.map(o => `<option value="${o}">`).join('')}
             </datalist>
+            <div class="error-message" id="triggers-error"></div>
         </div>
         <div class="form-group">
             <label for="notes">Notas Adicionais (IA)</label>
@@ -1032,7 +1094,7 @@ const renderEditModal = () => {
                     <h2 id="edit-modal-title">Editar Operação</h2>
                     <button class="btn-close-modal" aria-label="Fechar modal">&times;</button>
                 </div>
-                <form id="edit-trade-form">
+                <form id="edit-trade-form" novalidate>
                     ${renderFormFields(editingTrade)}
                     <button type="submit" class="btn btn-primary">Salvar Alterações</button>
                 </form>

@@ -471,3 +471,20 @@ form .btn {
 .btn-danger:hover {
     background-color: #c62828;
 }
+
+/* Validation Styles */
+.form-group .error-message {
+    color: var(--loss-color);
+    font-size: 0.8rem;
+    margin-top: 0.25rem;
+    min-height: 1em; /* Prevents layout shift */
+}
+
+.form-group input.is-invalid {
+    border-color: var(--loss-color);
+}
+
+.form-group input.is-invalid:focus {
+    border-color: var(--loss-color);
+    box-shadow: 0 0 0 2px rgba(239, 83, 80, 0.3);
+}
