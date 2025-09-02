@@ -40,6 +40,9 @@ import html2canvas from 'html2canvas';
  * @property {'Todos' | 'Compra' | 'Venda'} side
  * @property {string} date
  * @property {'Todos' | 'Gain' | 'Loss'} result
+ * @property {string} region
+ * @property {string} structure
+ * @property {string} trigger
  */
 
 /**
@@ -120,7 +123,7 @@ let deletingTradeId = null;
 /** @type {'regions' | 'structures' | 'triggers' | null} */
 let managingOptionsFor = null;
 /** @type {Filters} */
-let filters = { asset: '', side: 'Todos', date: '', result: 'Todos' };
+let filters = { asset: '', side: 'Todos', date: '', result: 'Todos', region: 'Todos', structure: 'Todos', trigger: 'Todos' };
 /** @type {RegOptions} */
 let regOptions = {
     regions: ['Região Barata', 'Região Cara', 'Consolidação'],
@@ -155,6 +158,104 @@ const loadState = () => {
 };
 
 // --- GOOGLE SHEETS INTEGRATION ---
+/**
+ * Parses a row array from Google Sheets into a Trade object.
+ * @param {any[]} row The array of values for a single row.
+ * @returns {Trade | null} A trade object or null if parsing fails.
+ */
+const rowToTrade = (row) => {
+    try {
+        // Column mapping based on headerRow in syncToSheet
+        // 0: ID, 1: Ativo, 2: # Operação, 3: Lado, 4: Data, 5: Lotes, 6: Preço Entrada,
+        // 7: Preço Saída, 8: Pontos, 9: Resultado R$, 10: Região, 11: Estrutura, 12: Gatilho, 13: Notas
+        const trade = {
+            id: parseInt(row[0], 10),
+            asset: row[1],
+            tradeNumber: parseInt(row[2], 10),
+            side: row[3],
+            date: row[4],
+            lots: parseLocaleNumber(row[5]),
+            entryPrice: parseLocaleNumber(row[6]),
+            exitPrice: parseLocaleNumber(row[7]),
+            points: parseLocaleNumber(row[8]),
+            result: parseLocaleNumber(row[9]),
+            region: row[10],
+            structure: row[11],
+            trigger: row[12],
+            notes: row[13] || '',
+        };
+        // Basic validation: ensure essential fields are valid numbers/strings
+        if (isNaN(trade.id) || isNaN(trade.tradeNumber) || !trade.asset || !trade.date) {
+            console.warn('Skipping invalid row from sheet:', row);
+            return null;
+        }
+        return trade;
+    } catch (e) {
+        console.error('Error parsing row from sheet:', row, e);
+        return null;
+    }
+};
+
+/**
+ * Fetches all trades from the 'Trades' sheet in Google Sheets and replaces
+ * the local trades data.
+ */
+const loadTradesFromSheet = async () => {
+    if (!googleAuthState.isSignedIn) {
+        alert("Você precisa estar conectado ao Google para carregar o histórico.");
+        return;
+    }
+    if (!spreadsheetId) {
+        alert('ID da Planilha não configurado.');
+        return;
+    }
+
+    const loadButton = document.getElementById('load-sheets');
+    if (loadButton) {
+        loadButton.textContent = 'Carregando...';
+        loadButton.setAttribute('disabled', 'true');
+    }
+
+    try {
+        const sheetName = 'Trades';
+        const response = await gapi.client.sheets.spreadsheets.values.get({
+            spreadsheetId: spreadsheetId,
+            range: sheetName,
+        });
+
+        const values = response.result.values || [];
+        if (values.length <= 1) { // No data rows, only header or empty
+            alert("Nenhuma operação encontrada na planilha para carregar.");
+            trades = [];
+            render();
+            return;
+        }
+        
+        const dataRows = values.slice(1); 
+        const loadedTrades = dataRows.map(rowToTrade).filter(t => t !== null);
+
+        trades = loadedTrades;
+        
+        render();
+        alert(`${loadedTrades.length} operação(ões) carregada(s) com sucesso da planilha!`);
+
+    } catch (err) {
+        console.error('Erro ao carregar dados da planilha:', err);
+        let errorMessage = 'Falha ao carregar dados da planilha.';
+        if (err.result?.error?.message) {
+            errorMessage += `\nDetalhes: ${err.result.error.message}`;
+        } else if (err.message) {
+            errorMessage += `\nDetalhes: ${err.message}`;
+        }
+        alert(errorMessage);
+    } finally {
+        if (loadButton) {
+            loadButton.textContent = 'Carregar Histórico';
+            loadButton.removeAttribute('disabled');
+        }
+    }
+};
+
 const gapiLoaded = () => {
     gapi.load('client', initializeGapiClient);
 };
@@ -1292,7 +1393,10 @@ const applyFilters = () => {
         const sideMatch = filters.side === 'Todos' || trade.side === filters.side;
         const dateMatch = !filters.date || trade.date === filters.date;
         const resultMatch = filters.result === 'Todos' || (filters.result === 'Gain' && trade.result > 0) || (filters.result === 'Loss' && trade.result <= 0);
-        return assetMatch && sideMatch && dateMatch && resultMatch;
+        const regionMatch = filters.region === 'Todos' || trade.region === filters.region;
+        const structureMatch = filters.structure === 'Todos' || trade.structure === filters.structure;
+        const triggerMatch = filters.trigger === 'Todos' || trade.trigger === filters.trigger;
+        return assetMatch && sideMatch && dateMatch && resultMatch && regionMatch && structureMatch && triggerMatch;
     });
 };
 
@@ -1411,6 +1515,7 @@ const renderGoogleAuthHeader = () => {
     } else if (isConnected) {
         content = `
             <span class="status-text" title="Conectado ao Google Sheets">${googleAuthState.user}</span>
+            <button id="load-sheets" class="btn btn-secondary" title="Carregar histórico da planilha">Carregar Histórico</button>
             <button id="sync-sheets" class="btn btn-primary" title="Sincronizar com Google Sheets">Sincronizar</button>
             <button id="signout-sheets" class="btn btn-secondary" title="Desconectar do Google">Desconectar</button>
         `;
@@ -1648,6 +1753,18 @@ const renderFilters = () => {
                 <option value="Gain" ${filters.result === 'Gain' ? 'selected' : ''}>Gain</option>
                 <option value="Loss" ${filters.result === 'Loss' ? 'selected' : ''}>Loss</option>
             </select>
+            <select name="region" class="filter-input">
+                <option value="Todos" ${filters.region === 'Todos' ? 'selected' : ''}>Todas Regiões</option>
+                ${regOptions.regions.map(o => `<option value="${o}" ${filters.region === o ? 'selected' : ''}>${o}</option>`).join('')}
+            </select>
+            <select name="structure" class="filter-input">
+                <option value="Todos" ${filters.structure === 'Todos' ? 'selected' : ''}>Todas Estruturas</option>
+                ${regOptions.structures.map(o => `<option value="${o}" ${filters.structure === o ? 'selected' : ''}>${o}</option>`).join('')}
+            </select>
+            <select name="trigger" class="filter-input">
+                <option value="Todos" ${filters.trigger === 'Todos' ? 'selected' : ''}>Todos Gatilhos</option>
+                ${regOptions.triggers.map(o => `<option value="${o}" ${filters.trigger === o ? 'selected' : ''}>${o}</option>`).join('')}
+            </select>
         </div>
     `;
 }
@@ -1666,7 +1783,7 @@ const getTradeStatus = (trade) => {
  * @param {Trade[]} data
  */
 const renderTradeHistory = (data) => {
-    const hasActiveFilters = filters.asset !== '' || filters.side !== 'Todos' || filters.date !== '' || filters.result !== 'Todos';
+    const hasActiveFilters = filters.asset !== '' || filters.side !== 'Todos' || filters.date !== '' || filters.result !== 'Todos' || filters.region !== 'Todos' || filters.structure !== 'Todos' || filters.trigger !== 'Todos';
     const emptyMessage = hasActiveFilters 
         ? 'Nenhuma operação encontrada para os filtros aplicados.' 
         : 'Nenhuma operação registrada.';
@@ -1911,6 +2028,7 @@ const attachEventListeners = () => {
     document.getElementById('auth-sheets')?.addEventListener('click', handleAuthClick);
     document.getElementById('signout-sheets')?.addEventListener('click', handleSignoutClick);
     document.getElementById('sync-sheets')?.addEventListener('click', () => syncToSheet());
+    document.getElementById('load-sheets')?.addEventListener('click', loadTradesFromSheet);
 };
 
 const loadGoogleApiScripts = () => {
