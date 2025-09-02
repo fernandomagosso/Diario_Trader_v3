@@ -146,6 +146,17 @@ main {
     .form-columns {
         grid-template-columns: 1fr;
     }
+    .add-option-form {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .add-option-form button {
+        width: 100%;
+        height: auto;
+        padding: 0.5rem;
+        font-size: 1.5rem;
+    }
 }
 
 .btn {
@@ -385,17 +396,13 @@ form .btn {
     background: none;
     border: none;
     cursor: pointer;
-    font-size: 0.8rem;
     color: var(--text-secondary-color);
-    font-weight: 500;
     padding: 0;
-    text-decoration: none;
     transition: color 0.2s ease;
 }
 
 .btn-manage-options:hover {
     color: var(--primary-color);
-    text-decoration: underline;
 }
 
 .btn-delete-option:hover {

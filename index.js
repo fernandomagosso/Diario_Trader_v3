@@ -354,6 +354,76 @@ const syncRegOptionsToSheet = async (options = {}) => {
     }
 };
 
+const appendRegOptionToSheet = async (optionType, optionValue) => {
+    if (!googleAuthState.isSignedIn || !spreadsheetId) return;
+
+    const columnMap = {
+        regions: 0,
+        structures: 1,
+        triggers: 2,
+    };
+    const columnIndex = columnMap[optionType];
+    const rowValues = ['', '', ''];
+    rowValues[columnIndex] = optionValue;
+    
+    try {
+        await gapi.client.sheets.spreadsheets.values.append({
+            spreadsheetId: spreadsheetId,
+            range: `${CONFIG_SHEET_NAME}!A:C`,
+            valueInputOption: 'USER_ENTERED',
+            insertDataOption: 'INSERT_ROWS',
+            resource: {
+                values: [rowValues],
+            },
+        });
+    } catch (error) {
+        console.error(`Failed to append option "${optionValue}" to Google Sheet:`, error);
+    }
+};
+
+const deleteRegOptionFromSheet = async (optionType, optionValue) => {
+    if (!googleAuthState.isSignedIn || !spreadsheetId) return;
+
+    const columnMap = {
+        regions: 0,
+        structures: 1,
+        triggers: 2,
+    };
+    const columnIndex = columnMap[optionType];
+
+    try {
+        const response = await gapi.client.sheets.spreadsheets.values.get({
+            spreadsheetId: spreadsheetId,
+            range: `${CONFIG_SHEET_NAME}!A:C`,
+        });
+
+        const values = response.result.values || [];
+        let cellToClear = '';
+
+        // Find the cell coordinates (e.g., "A5")
+        for (let i = 1; i < values.length; i++) { // Start at 1 to skip header
+            if (values[i][columnIndex] === optionValue) {
+                const columnLetter = String.fromCharCode(65 + columnIndex);
+                const rowNumber = i + 1;
+                cellToClear = `${CONFIG_SHEET_NAME}!${columnLetter}${rowNumber}`;
+                break;
+            }
+        }
+
+        if (cellToClear) {
+            await gapi.client.sheets.spreadsheets.values.clear({
+                spreadsheetId: spreadsheetId,
+                range: cellToClear,
+            });
+        } else {
+            console.warn(`Option "${optionValue}" not found in sheet to clear.`);
+        }
+
+    } catch (error) {
+        console.error(`Failed to clear option "${optionValue}" from Google Sheet:`, error);
+    }
+};
+
 const syncToSheet = async (options = {}) => {
     if (!spreadsheetId) {
         if (!options.silent) alert('ID da Planilha não configurado.');
@@ -526,7 +596,7 @@ const addRegOption = (event) => {
         regOptions[managingOptionsFor].sort();
         saveState();
         if (googleAuthState.isSignedIn) {
-            syncRegOptionsToSheet({ silent: true });
+            appendRegOptionToSheet(managingOptionsFor, newOption);
         }
     }
     render();
@@ -536,7 +606,7 @@ const deleteRegOption = (optionType, optionToDelete) => {
     regOptions[optionType] = regOptions[optionType].filter(opt => opt !== optionToDelete);
     saveState();
     if (googleAuthState.isSignedIn) {
-        syncRegOptionsToSheet({ silent: true });
+        deleteRegOptionFromSheet(optionType, optionToDelete);
     }
     render();
 };
@@ -1380,7 +1450,7 @@ const renderFormFields = (tradeData) => {
         <div class="form-group">
             <div class="form-label-group">
                 <label for="regions">Região</label>
-                <button type="button" class="btn-manage-options" data-option-type="regions" aria-label="Gerenciar Regiões">Gerenciar</button>
+                <button type="button" class="btn-icon btn-manage-options" data-option-type="regions" title="Gerenciar Regiões" aria-label="Gerenciar Regiões">⚙️</button>
             </div>
             <input list="regions-list" id="regions" name="regions" required value="${tradeData.region || ''}">
             <datalist id="regions-list">
@@ -1391,7 +1461,7 @@ const renderFormFields = (tradeData) => {
         <div class="form-group">
             <div class="form-label-group">
                 <label for="structures">Estrutura</label>
-                <button type="button" class="btn-manage-options" data-option-type="structures" aria-label="Gerenciar Estruturas">Gerenciar</button>
+                <button type="button" class="btn-icon btn-manage-options" data-option-type="structures" title="Gerenciar Estruturas" aria-label="Gerenciar Estruturas">⚙️</button>
             </div>
             <input list="structures-list" id="structures" name="structures" required value="${tradeData.structure || ''}">
             <datalist id="structures-list">
@@ -1402,7 +1472,7 @@ const renderFormFields = (tradeData) => {
         <div class="form-group">
             <div class="form-label-group">
                 <label for="triggers">Gatilho</label>
-                <button type="button" class="btn-manage-options" data-option-type="triggers" aria-label="Gerenciar Gatilhos">Gerenciar</button>
+                <button type="button" class="btn-icon btn-manage-options" data-option-type="triggers" title="Gerenciar Gatilhos" aria-label="Gerenciar Gatilhos">⚙️</button>
             </div>
             <input list="triggers-list" id="triggers" name="triggers" required value="${tradeData.trigger || ''}">
             <datalist id="triggers-list">
