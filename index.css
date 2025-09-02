@@ -95,7 +95,8 @@ main {
 }
 
 .form-group label {
-    display: block;
+    display: flex;
+    align-items: center;
     margin-bottom: 0.5rem;
     font-weight: 500;
     color: var(--text-secondary-color);
@@ -132,8 +133,18 @@ main {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 1rem;
-    margin: 1.5rem 0;
+    margin-bottom: 1.5rem;
 }
+
+.form-section-title {
+    font-weight: 600;
+    color: var(--primary-color);
+    margin-top: 1.5rem;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
 
 @media (max-width: 480px) {
     .form-grid {
@@ -240,7 +251,7 @@ form .btn {
     flex-wrap: wrap;
     gap: 0.75rem;
     margin-bottom: 1.5rem;
-    padding: 1rem 0;
+    padding-bottom: 1rem;
     border-bottom: 1px solid var(--border-color);
     /* Sticky styles */
     position: sticky;
@@ -250,13 +261,25 @@ form .btn {
 }
 
 .filter-input {
-    flex: 1 1 150px;
+    flex: 1 1 120px;
     padding: 0.6rem;
     border-radius: 4px;
     border: 1px solid var(--border-color);
     background-color: var(--bg-color);
     color: var(--text-color);
     font-size: 0.9rem;
+}
+
+.filter-date-range {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 2 1 280px;
+}
+
+.filter-date-range label {
+    font-size: 0.9rem;
+    color: var(--text-secondary-color);
 }
 
 .trade-history {
@@ -378,68 +401,23 @@ form .btn {
     color: var(--loss-color);
 }
 
-/* Tab Styles */
-.reg-tabs {
-    margin: 1.5rem 0;
-}
-
-.reg-tab-list {
-    display: flex;
-    list-style: none;
-    border-bottom: 1px solid var(--border-color);
-    margin-bottom: 1rem;
-}
-
-.reg-tab {
-    padding: 0.75rem 1rem;
-    border: none;
-    background: none;
-    color: var(--text-secondary-color);
-    cursor: pointer;
-    font-size: 0.95rem;
-    font-family: inherit;
-    border-bottom: 2px solid transparent;
-    transition: color 0.2s ease, border-color 0.2s ease;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    width: 100%;
-}
-
-.reg-tab:hover {
-    color: var(--text-color);
-}
-
-.reg-tab.active {
-    color: var(--primary-color);
-    border-bottom-color: var(--primary-color);
-    font-weight: 600;
-}
-
 .manage-reg-icon {
-    font-size: 1rem;
-    opacity: 0.6;
-    transition: transform 0.3s ease, color 0.2s ease, opacity 0.2s ease;
-    padding: 0.25rem;
-    margin-left: 0.5rem;
+    /* Style as a subtle, clickable icon that inherits text styles */
+    display: inline-block; /* Behaves well with flex alignment */
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    margin-left: 0.5em;
 }
 
-.reg-tab:hover .manage-reg-icon {
-    opacity: 1;
-}
-
-.manage-reg-icon:hover {
-    transform: rotate(45deg);
-    color: var(--primary-color);
-}
-
-.reg-tab-panel.active {
-    animation: fadeIn 0.3s ease-in-out;
-}
-
-@keyframes fadeIn {
-    from { opacity: 0; transform: translateY(5px); }
-    to { opacity: 1; transform: translateY(0); }
+.manage-reg-icon:focus-visible {
+    /* Accessible focus state that doesn't look like a button border */
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+    border-radius: 3px;
 }
 
 
@@ -516,11 +494,13 @@ form .btn {
     min-height: 1em; /* Prevents layout shift */
 }
 
-.form-group input.is-invalid {
+.form-group input.is-invalid,
+.form-group select.is-invalid {
     border-color: var(--loss-color);
 }
 
-.form-group input.is-invalid:focus {
+.form-group input.is-invalid:focus,
+.form-group select.is-invalid:focus {
     border-color: var(--loss-color);
     box-shadow: 0 0 0 2px rgba(239, 83, 80, 0.3);
 }
@@ -636,9 +616,35 @@ form .btn {
 
 .add-option-form {
     display: flex;
-    flex-direction: column;
     gap: 0.75rem;
     margin-top: 1.5rem;
+}
+
+.add-option-form > input {
+    /* Layout in flexbox */
+    flex-grow: 1;
+    
+    /* Copy styles from .form-group input for visual consistency and size */
+    padding: 0.85rem; /* Make it a bit bigger for better usability */
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    font-size: 1rem;
+    font-family: inherit;
+}
+
+.add-option-form > input:focus {
+    /* Copy focus styles from .form-group input */
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(0, 170, 255, 0.3);
+}
+
+.add-option-form > button {
+    /* Override generic form button style to fit the row layout */
+    width: auto;
+    flex-shrink: 0;
 }
 
 .inline-add-container {
