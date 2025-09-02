@@ -599,7 +599,49 @@ const addRegOption = (event) => {
             appendRegOptionToSheet(managingOptionsFor, newOption);
         }
     }
-    render();
+    // Re-render the modal content, not the whole app
+    const modalContainer = document.getElementById('modal-container');
+    if (modalContainer) {
+        modalContainer.innerHTML = renderManageOptionsModal();
+        // Re-attach listeners for the new modal content
+        const newModal = modalContainer.querySelector('.modal-overlay:has(#manage-options-title)');
+        if (newModal) {
+            attachModalEventListeners(newModal);
+            newModal.querySelector('#new-option-input')?.focus();
+        }
+    }
+};
+
+const addInlineRegOption = (optionType, optionValue) => {
+    if (!optionValue || regOptions[optionType].includes(optionValue)) return;
+    
+    regOptions[optionType].push(optionValue);
+    regOptions[optionType].sort();
+    saveState();
+    if (googleAuthState.isSignedIn) {
+        appendRegOptionToSheet(optionType, optionValue);
+    }
+
+    // Re-render datalist
+    const datalist = document.getElementById(`${optionType}-list`);
+    if (datalist) {
+        datalist.innerHTML = regOptions[optionType].map(o => `<option value="${o}">`).join('');
+    }
+    
+    // Hide button
+    const container = document.getElementById(`${optionType}-add-container`);
+    if (container) container.innerHTML = '';
+
+    // Visual feedback
+    const input = document.getElementById(optionType);
+    if (input) {
+        input.classList.add('is-valid-flash');
+        setTimeout(() => input.classList.remove('is-valid-flash'), 1000);
+        // Clear validation error if any
+        const errorEl = document.getElementById(`${optionType}-error`);
+        if (errorEl) errorEl.textContent = '';
+        input.classList.remove('is-invalid');
+    }
 };
 
 const deleteRegOption = (optionType, optionToDelete) => {
@@ -608,38 +650,15 @@ const deleteRegOption = (optionType, optionToDelete) => {
     if (googleAuthState.isSignedIn) {
         deleteRegOptionFromSheet(optionType, optionToDelete);
     }
-    render();
-};
-
-/**
- * @param {{ region: string; structure: string; trigger: string; }} tradeData
- */
-const updateRegOptionsIfNeeded = (tradeData) => {
-    let optionsChanged = false;
-    const newRegion = tradeData.region.trim();
-    const newStructure = tradeData.structure.trim();
-    const newTrigger = tradeData.trigger.trim();
-
-    if (newRegion && !regOptions.regions.includes(newRegion)) {
-        regOptions.regions.push(newRegion);
-        optionsChanged = true;
-    }
-    if (newStructure && !regOptions.structures.includes(newStructure)) {
-        regOptions.structures.push(newStructure);
-        optionsChanged = true;
-    }
-    if (newTrigger && !regOptions.triggers.includes(newTrigger)) {
-        regOptions.triggers.push(newTrigger);
-        optionsChanged = true;
-    }
-
-    if (optionsChanged) {
-        saveState();
-        if (googleAuthState.isSignedIn) {
-            syncRegOptionsToSheet({ silent: true });
+    // Re-render just the modal content
+    const modalContainer = document.getElementById('modal-container');
+    if (modalContainer) {
+        modalContainer.innerHTML = renderManageOptionsModal();
+         const newModal = modalContainer.querySelector('.modal-overlay:has(#manage-options-title)');
+        if (newModal) {
+            attachModalEventListeners(newModal);
         }
     }
-    return optionsChanged;
 };
 
 const handleApiKeySubmit = async (event) => {
@@ -787,9 +806,9 @@ const validateTradeForm = (form) => {
         { id: 'lots', required: true, isNumeric: true },
         { id: 'entry-price', required: true, isNumeric: true },
         { id: 'exit-price', required: true, isNumeric: true },
-        { id: 'regions', required: true },
-        { id: 'structures', required: true },
-        { id: 'triggers', required: true }
+        { id: 'regions', required: true, isReg: true, options: regOptions.regions },
+        { id: 'structures', required: true, isReg: true, options: regOptions.structures },
+        { id: 'triggers', required: true, isReg: true, options: regOptions.triggers }
     ];
 
     fields.forEach(field => {
@@ -807,6 +826,8 @@ const validateTradeForm = (form) => {
             errorMessage = 'Este campo é obrigatório.';
         } else if (value && field.isNumeric && isNaN(parseLocaleNumber(value))) {
             errorMessage = 'Por favor, insira um número válido.';
+        } else if (value && field.isReg && !field.options.includes(value)) {
+            errorMessage = 'Opção não cadastrada. Adicione-a antes de registrar.';
         }
 
         if (errorMessage) {
@@ -860,7 +881,6 @@ const addTrade = (event) => {
     };
     
     trades.push(newTrade);
-    updateRegOptionsIfNeeded(newTrade);
 
     if (googleAuthState.isSignedIn) {
         syncToSheet({ silent: true });
@@ -919,8 +939,6 @@ const updateTrade = (event) => {
     if (tradeIndex !== -1) {
         trades[tradeIndex] = updatedTrade;
     }
-
-    updateRegOptionsIfNeeded(updatedTrade);
     
     if (googleAuthState.isSignedIn) {
         syncToSheet({ silent: true });
@@ -1421,7 +1439,8 @@ const renderFormFields = (tradeData) => {
             <input type="date" id="date" name="date" required value="${tradeData.date || ''}">
             <div class="error-message" id="date-error"></div>
         </div>
-        <div class="form-columns">
+
+        <div class="form-grid">
             <div class="form-group">
                 <label for="side">Lado</label>
                 <select id="side" name="side">
@@ -1434,8 +1453,6 @@ const renderFormFields = (tradeData) => {
                 <input type="text" inputmode="decimal" id="lots" name="lots" required value="${tradeData.lots || 1}">
                 <div class="error-message" id="lots-error"></div>
             </div>
-        </div>
-        <div class="form-columns">
             <div class="form-group">
                 <label for="entry-price">Preço Entrada</label>
                 <input type="text" inputmode="decimal" id="entry-price" name="entry-price" required step="0.5" value="${tradeData.entryPrice || ''}">
@@ -1447,45 +1464,72 @@ const renderFormFields = (tradeData) => {
                 <div class="error-message" id="exit-price-error"></div>
             </div>
         </div>
-        <div class="form-group">
-            <div class="form-label-group">
-                <label for="regions">Região</label>
-                <button type="button" class="btn-icon btn-manage-options" data-option-type="regions" title="Gerenciar Regiões" aria-label="Gerenciar Regiões">⚙️</button>
+
+        <div class="reg-tabs">
+            <ul class="reg-tab-list" role="tablist" aria-label="Estratégia REG">
+                <li role="presentation">
+                    <button class="reg-tab active" role="tab" type="button" aria-selected="true" aria-controls="reg-panel-1" id="reg-tab-1">
+                        <span>Região</span>
+                        <span class="manage-reg-icon" data-option-type="regions" title="Gerenciar Opções de Região">⚙️</span>
+                    </button>
+                </li>
+                <li role="presentation">
+                    <button class="reg-tab" role="tab" type="button" aria-selected="false" aria-controls="reg-panel-2" id="reg-tab-2" tabindex="-1">
+                        <span>Estrutura</span>
+                        <span class="manage-reg-icon" data-option-type="structures" title="Gerenciar Opções de Estrutura">⚙️</span>
+                    </button>
+                </li>
+                <li role="presentation">
+                    <button class="reg-tab" role="tab" type="button" aria-selected="false" aria-controls="reg-panel-3" id="reg-tab-3" tabindex="-1">
+                        <span>Gatilho</span>
+                        <span class="manage-reg-icon" data-option-type="triggers" title="Gerenciar Opções de Gatilho">⚙️</span>
+                    </button>
+                </li>
+            </ul>
+            <div class="reg-tab-panels">
+                <div class="reg-tab-panel active" role="tabpanel" id="reg-panel-1" aria-labelledby="reg-tab-1">
+                     <div class="form-group">
+                        <label for="regions" class="sr-only">Região</label>
+                        <input list="regions-list" id="regions" name="regions" required value="${tradeData.region || ''}" autocomplete="off">
+                        <div class="inline-add-container" id="regions-add-container"></div>
+                        <datalist id="regions-list">
+                            ${regOptions.regions.map(o => `<option value="${o}">`).join('')}
+                        </datalist>
+                        <div class="error-message" id="regions-error"></div>
+                    </div>
+                </div>
+                <div class="reg-tab-panel" role="tabpanel" id="reg-panel-2" aria-labelledby="reg-tab-2" hidden>
+                    <div class="form-group">
+                        <label for="structures" class="sr-only">Estrutura</label>
+                        <input list="structures-list" id="structures" name="structures" required value="${tradeData.structure || ''}" autocomplete="off">
+                        <div class="inline-add-container" id="structures-add-container"></div>
+                        <datalist id="structures-list">
+                            ${regOptions.structures.map(o => `<option value="${o}">`).join('')}
+                        </datalist>
+                        <div class="error-message" id="structures-error"></div>
+                    </div>
+                </div>
+                <div class="reg-tab-panel" role="tabpanel" id="reg-panel-3" aria-labelledby="reg-tab-3" hidden>
+                    <div class="form-group">
+                        <label for="triggers" class="sr-only">Gatilho</label>
+                        <input list="triggers-list" id="triggers" name="triggers" required value="${tradeData.trigger || ''}" autocomplete="off">
+                        <div class="inline-add-container" id="triggers-add-container"></div>
+                        <datalist id="triggers-list">
+                            ${regOptions.triggers.map(o => `<option value="${o}">`).join('')}
+                        </datalist>
+                        <div class="error-message" id="triggers-error"></div>
+                    </div>
+                </div>
             </div>
-            <input list="regions-list" id="regions" name="regions" required value="${tradeData.region || ''}">
-            <datalist id="regions-list">
-                ${regOptions.regions.map(o => `<option value="${o}">`).join('')}
-            </datalist>
-            <div class="error-message" id="regions-error"></div>
         </div>
-        <div class="form-group">
-            <div class="form-label-group">
-                <label for="structures">Estrutura</label>
-                <button type="button" class="btn-icon btn-manage-options" data-option-type="structures" title="Gerenciar Estruturas" aria-label="Gerenciar Estruturas">⚙️</button>
-            </div>
-            <input list="structures-list" id="structures" name="structures" required value="${tradeData.structure || ''}">
-            <datalist id="structures-list">
-                ${regOptions.structures.map(o => `<option value="${o}">`).join('')}
-            </datalist>
-            <div class="error-message" id="structures-error"></div>
-        </div>
-        <div class="form-group">
-            <div class="form-label-group">
-                <label for="triggers">Gatilho</label>
-                <button type="button" class="btn-icon btn-manage-options" data-option-type="triggers" title="Gerenciar Gatilhos" aria-label="Gerenciar Gatilhos">⚙️</button>
-            </div>
-            <input list="triggers-list" id="triggers" name="triggers" required value="${tradeData.trigger || ''}">
-            <datalist id="triggers-list">
-                ${regOptions.triggers.map(o => `<option value="${o}">`).join('')}
-            </datalist>
-            <div class="error-message" id="triggers-error"></div>
-        </div>
+        
         <div class="form-group">
             <label for="notes">Notas Adicionais (IA)</label>
             <textarea id="notes" name="notes" rows="4">${tradeData.notes || ''}</textarea>
         </div>
     `;
 };
+
 
 const renderDeleteModal = () => {
     if (deletingTradeId === null) return '';
@@ -1548,7 +1592,7 @@ const renderManageOptionsModal = () => {
                     <form id="add-option-form" class="add-option-form">
                          <label for="new-option-input" class="sr-only">Nova opção</label>
                          <input type="text" id="new-option-input" name="new-option-input" placeholder="Adicionar nova ${title.slice(0, -1).toLowerCase()}" required>
-                         <button type="submit" class="btn btn-primary" aria-label="Adicionar" title="Adicionar">+</button>
+                         <button type="submit" class="btn btn-primary">Adicionar</button>
                     </form>
                 </div>
             </div>
@@ -1729,6 +1773,31 @@ const renderCharts = (data) => {
     }
 };
 
+const attachModalEventListeners = (modal) => {
+    if (modal.querySelector('#delete-modal-title')) {
+        modal.querySelector('.btn-close-modal')?.addEventListener('click', closeDeleteModal);
+        modal.addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) closeDeleteModal();
+        });
+        modal.querySelector('.btn-confirm-delete')?.addEventListener('click', confirmDelete);
+        modal.querySelector('.btn-cancel-delete')?.addEventListener('click', closeDeleteModal);
+    } else if (modal.querySelector('#manage-options-title')) {
+         modal.querySelector('#add-option-form')?.addEventListener('submit', addRegOption);
+        modal.querySelector('.btn-close-modal')?.addEventListener('click', closeManageOptionsModal);
+        modal.addEventListener('click', (e) => {
+             if (e.target === e.currentTarget) closeManageOptionsModal();
+        });
+        modal.querySelector('.options-list')?.addEventListener('click', (e) => {
+            const target = e.target;
+            const deleteButton = target.closest('.btn-delete-option');
+            if (deleteButton) {
+                const { optionType, optionValue } = deleteButton.dataset;
+                deleteRegOption(optionType, optionValue);
+            }
+        });
+    }
+}
+
 
 const attachEventListeners = () => {
     document.getElementById('trade-form')?.addEventListener('submit', addTrade);
@@ -1758,39 +1827,85 @@ const attachEventListeners = () => {
         }
     });
 
-    document.querySelectorAll('.btn-manage-options').forEach(btn => {
+    document.querySelectorAll('.manage-reg-icon').forEach(btn => {
         btn.addEventListener('click', (e) => {
+            e.stopPropagation(); // Prevent tab click event
             const optionType = e.currentTarget.dataset.optionType;
             openManageOptionsModal(optionType);
         });
     });
 
-    const deleteModal = document.querySelector('.modal-overlay:has(#delete-modal-title)');
-    if (deleteModal) {
-        deleteModal.querySelector('.btn-close-modal')?.addEventListener('click', closeDeleteModal);
-        deleteModal.addEventListener('click', (e) => {
-            if (e.target === e.currentTarget) closeDeleteModal();
+    // REG Tabs
+    const regTabsContainer = document.querySelector('.reg-tabs');
+    if(regTabsContainer) {
+        const tabs = regTabsContainer.querySelectorAll('[role="tab"]');
+        const panels = regTabsContainer.querySelectorAll('[role="tabpanel"]');
+        
+        tabs.forEach(tab => {
+            tab.addEventListener('click', (e) => {
+                // Deactivate all tabs and panels
+                tabs.forEach(t => {
+                    t.classList.remove('active');
+                    t.setAttribute('aria-selected', 'false');
+                    t.setAttribute('tabindex', '-1');
+                });
+                panels.forEach(p => {
+                    p.classList.remove('active');
+                    p.hidden = true;
+                });
+
+                // Activate clicked tab and corresponding panel
+                const clickedTab = e.currentTarget;
+                const panelId = clickedTab.getAttribute('aria-controls');
+                const panel = document.getElementById(panelId);
+
+                clickedTab.classList.add('active');
+                clickedTab.setAttribute('aria-selected', 'true');
+                clickedTab.removeAttribute('tabindex');
+
+                if (panel) {
+                    panel.classList.add('active');
+                    panel.hidden = false;
+                }
+            });
         });
-        document.querySelector('.btn-confirm-delete')?.addEventListener('click', confirmDelete);
-        document.querySelector('.btn-cancel-delete')?.addEventListener('click', closeDeleteModal);
-    }
-    
-    const optionsModal = document.querySelector('.modal-overlay:has(#manage-options-title)');
-    if (optionsModal) {
-        optionsModal.querySelector('#add-option-form')?.addEventListener('submit', addRegOption);
-        optionsModal.querySelector('.btn-close-modal')?.addEventListener('click', closeManageOptionsModal);
-        optionsModal.addEventListener('click', (e) => {
-             if (e.target === e.currentTarget) closeManageOptionsModal();
+
+        // Listen for input on REG fields to show/hide inline add button
+        ['regions', 'structures', 'triggers'].forEach(id => {
+            const input = document.getElementById(id);
+            if (input) {
+                input.addEventListener('input', () => {
+                    const optionType = id;
+                    const value = input.value.trim();
+                    const container = document.getElementById(`${id}-add-container`);
+                    if (!container) return;
+
+                    if (value && !regOptions[optionType].includes(value)) {
+                        container.innerHTML = `<button type="button" class="btn btn-secondary btn-inline-add" data-option-type="${optionType}" data-option-value="${value}">+ Adicionar "${value}"</button>`;
+                    } else {
+                        container.innerHTML = '';
+                    }
+                });
+            }
         });
-        optionsModal.querySelector('.options-list')?.addEventListener('click', (e) => {
+
+        // Delegated listener for the inline add buttons
+        regTabsContainer.querySelector('.reg-tab-panels')?.addEventListener('click', (e) => {
             const target = e.target;
-            const deleteButton = target.closest('.btn-delete-option');
-            if (deleteButton) {
-                const { optionType, optionValue } = deleteButton.dataset;
-                deleteRegOption(optionType, optionValue);
+            const addButton = target.closest('.btn-inline-add');
+            if (addButton) {
+                const { optionType, optionValue } = addButton.dataset;
+                addInlineRegOption(optionType, optionValue);
             }
         });
     }
+
+    const deleteModal = document.querySelector('.modal-overlay:has(#delete-modal-title)');
+    if (deleteModal) attachModalEventListeners(deleteModal);
+    
+    const optionsModal = document.querySelector('.modal-overlay:has(#manage-options-title)');
+    if (optionsModal) attachModalEventListeners(optionsModal);
+
 
     // Google Sheets listeners
     document.getElementById('auth-sheets')?.addEventListener('click', handleAuthClick);
