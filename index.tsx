@@ -1372,6 +1372,29 @@ function render() {
     const today = new Date().toISOString().split('T')[0];
     const isEditing = editingTrade !== null;
 
+    let dateSubtitle = '';
+    const { startDate, endDate } = filters;
+    if (startDate || endDate) {
+        const formatDate = (dateStr: string): string => {
+            if (!dateStr) return '';
+            const [year, month, day] = dateStr.split('-');
+            return `${day}/${month}/${year}`;
+        };
+
+        const formattedStart = formatDate(startDate);
+        const formattedEnd = formatDate(endDate);
+
+        if (formattedStart && formattedEnd && startDate === endDate) {
+            dateSubtitle = `do dia ${formattedStart}`;
+        } else if (formattedStart && formattedEnd) {
+            dateSubtitle = `de ${formattedStart} a ${formattedEnd}`;
+        } else if (formattedStart) {
+            dateSubtitle = `a partir de ${formattedStart}`;
+        } else if (formattedEnd) {
+            dateSubtitle = `até ${formattedEnd}`;
+        }
+    }
+
     appRoot.innerHTML = `
         <div class="left-panel">
             <div class="card">
@@ -1388,7 +1411,7 @@ function render() {
         </div>
         <div class="right-panel">
             <div class="card" id="performance-dashboard-card">
-                 <h2>Dashboard de Performance</h2>
+                 <h2>Dashboard de Performance ${dateSubtitle}</h2>
                  ${renderDashboardStats(filteredTrades)}
                  <div class="charts">
                     <div><canvas id="pnlChart" role="img" aria-label="Gráfico de linha do resultado acumulado"></canvas></div>
@@ -1488,12 +1511,12 @@ const renderFormFields = (tradeData: Partial<Trade>) => {
             </div>
             <div class="form-group">
                 <label for="entry-price">Preço Entrada</label>
-                <input type="text" inputmode="decimal" id="entry-price" name="entry-price" required step="0.5" value="${tradeData.entryPrice || ''}">
+                <input type="text" inputmode="decimal" id="entry-price" name="entry-price" required value="${tradeData.entryPrice || ''}">
                 <div class="error-message" id="entry-price-error"></div>
             </div>
             <div class="form-group">
                 <label for="exit-price">Preço Saída</label>
-                <input type="text" inputmode="decimal" id="exit-price" name="exit-price" required step="0.5" value="${tradeData.exitPrice || ''}">
+                <input type="text" inputmode="decimal" id="exit-price" name="exit-price" required value="${tradeData.exitPrice || ''}">
                 <div class="error-message" id="exit-price-error"></div>
             </div>
         </div>
@@ -1581,7 +1604,18 @@ const renderManageOptionsModal = () => {
 
 const renderDashboardStats = (data: Trade[]) => {
     const totalResult = data.reduce((acc, t) => acc + t.result, 0);
-    const totalPoints = data.reduce((acc, t) => acc + t.points, 0);
+    
+    let averageDailyPoints = 0;
+    if (data.length > 0) {
+        const pointsByDay: { [date: string]: number } = data.reduce((acc: { [date: string]: number }, trade) => {
+            acc[trade.date] = (acc[trade.date] || 0) + trade.points;
+            return acc;
+        }, {});
+        const dailyTotals = Object.values(pointsByDay);
+        const sumOfDailyTotals = dailyTotals.reduce((acc, total) => acc + total, 0);
+        averageDailyPoints = dailyTotals.length > 0 ? sumOfDailyTotals / dailyTotals.length : 0;
+    }
+
     const gains = data.filter(t => t.result > 0).length;
     const totalTrades = data.length;
     const winRate = totalTrades > 0 ? (gains / totalTrades) * 100 : 0;
@@ -1593,8 +1627,8 @@ const renderDashboardStats = (data: Trade[]) => {
                 <p class="${totalResult >= 0 ? 'gain' : 'loss'}">${totalResult.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
             </div>
             <div class="stat-card">
-                <h3>Total de Pontos</h3>
-                <p class="${totalPoints >= 0 ? 'gain' : 'loss'}">${totalPoints.toFixed(2)}</p>
+                <h3>Média de Pontos / Dia</h3>
+                <p class="${averageDailyPoints >= 0 ? 'gain' : 'loss'}">${averageDailyPoints.toFixed(2)}</p>
             </div>
             <div class="stat-card">
                 <h3>Taxa de Acerto</h3>
