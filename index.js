@@ -1558,17 +1558,17 @@ const renderFormFields = (tradeData) => {
             </div>
             <div class="form-group">
                 <label for="lots">Lotes (Qtd.)</label>
-                <input type="text" inputmode="decimal" id="lots" name="lots" required value="${tradeData.lots || 1}">
+                <input type="text" inputmode="decimal" id="lots" name="lots" required value="${String(tradeData.lots ?? 1).replace('.', ',')}">
                 <div class="error-message" id="lots-error"></div>
             </div>
             <div class="form-group">
                 <label for="entry-price">Preço Entrada</label>
-                <input type="text" inputmode="decimal" id="entry-price" name="entry-price" required value="${tradeData.entryPrice || ''}">
+                <input type="text" inputmode="decimal" id="entry-price" name="entry-price" required value="${String(tradeData.entryPrice ?? '').replace('.', ',')}">
                 <div class="error-message" id="entry-price-error"></div>
             </div>
             <div class="form-group">
                 <label for="exit-price">Preço Saída</label>
-                <input type="text" inputmode="decimal" id="exit-price" name="exit-price" required value="${tradeData.exitPrice || ''}">
+                <input type="text" inputmode="decimal" id="exit-price" name="exit-price" required value="${String(tradeData.exitPrice ?? '').replace('.', ',')}">
                 <div class="error-message" id="exit-price-error"></div>
             </div>
         </div>
@@ -1684,7 +1684,7 @@ const renderDashboardStats = (data) => {
             </div>
             <div class="stat-card">
                 <h3>Média de Pontos / Dia</h3>
-                <p class="${averageDailyPoints >= 0 ? 'gain' : 'loss'}">${averageDailyPoints.toFixed(2)}</p>
+                <p class="${averageDailyPoints >= 0 ? 'gain' : 'loss'}">${averageDailyPoints.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
             </div>
             <div class="stat-card">
                 <h3>Taxa de Acerto</h3>
@@ -1787,10 +1787,10 @@ const renderTradeHistory = (data) => {
                             <td>${trade.asset}</td>
                             <td class="side-${trade.side === 'Compra' ? 'buy' : 'sell'}">${trade.side}</td>
                             <td>${trade.lots}</td>
-                            <td>${trade.entryPrice.toFixed(2)}</td>
-                            <td>${trade.exitPrice.toFixed(2)}</td>
+                            <td>${trade.entryPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            <td>${trade.exitPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                             <td>${trade.trigger}</td>
-                            <td class="${trade.points >= 0 ? 'gain' : 'loss'}">${trade.points.toFixed(2)}</td>
+                            <td class="${trade.points >= 0 ? 'gain' : 'loss'}">${trade.points.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                             <td class="${trade.result >= 0 ? 'gain' : 'loss'}">${trade.result.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                             <td class="${className}">${status}</td>
                             <td class="actions-cell">
